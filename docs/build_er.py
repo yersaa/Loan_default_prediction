@@ -20,9 +20,9 @@ ROW, TITLE_ROW, WIDTH = 0.34, 0.44, 3.5
 
 # Положение левого верхнего угла каждой таблицы (x, y)
 LAYOUT = {
-    "dim_grade": (0.2, 17.0), "dim_purpose": (4.3, 17.0), "dim_state": (8.4, 17.0),
-    "loans": (4.3, 15.3),
-    "borrowers": (0.2, 10.0), "dim_home": (4.3, 8.0), "outcomes": (8.4, 10.0),
+    "dim_grade": (0.2, 17.0), "dim_purpose": (4.6, 17.0), "dim_state": (9.0, 17.0),
+    "loans": (4.6, 15.3),
+    "borrowers": (0.2, 10.0), "dim_home": (4.9, 8.0), "outcomes": (9.0, 10.0),
 }
 # (родитель, потомок, подпись, сторона родителя, сторона потомка)
 RELATIONS = [
@@ -31,7 +31,7 @@ RELATIONS = [
     ("dim_state", "loans", "1 : N  state_code", "bottom", "right"),
     ("loans", "borrowers", "1 : 1  loan_id", "bottom", "top"),
     ("loans", "outcomes", "1 : 1  loan_id", "bottom", "top"),
-    ("dim_home", "borrowers", "1 : N  home_id", "left", "right"),
+    ("dim_home", "borrowers", "1 : N\nhome_id", "left", "right"),
 ]
 
 
@@ -94,7 +94,7 @@ def build() -> None:
     if missing:
         raise ValueError(f"Схема и раскладка расходятся: {sorted(missing)}")
     fig, ax = plt.subplots(figsize=(11, 12.2))
-    ax.set(xlim=(0, 12.1), ylim=(3.9, 17.2))
+    ax.set(xlim=(0, 12.7), ylim=(3.9, 17.2))
     ax.axis("off")
     for relation in RELATIONS:
         draw_relation(ax, tables, relation)

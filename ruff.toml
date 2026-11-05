@@ -5,3 +5,7 @@ extend-exclude = [".venv", "sample_run"]
 select = ["E", "F", "W", "I", "B", "UP"]
 # E402: matplotlib.use("Agg") должен стоять до импорта pyplot
 ignore = ["E402"]
+
+[lint.per-file-ignores]
+# Сборщики документов содержат абзацы текста отчёта и презентации
+"docs/*.py" = ["E501"]
