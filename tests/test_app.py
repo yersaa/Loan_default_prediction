@@ -30,7 +30,7 @@ def test_sample_pipeline_runs_without_raw_data_and_keeps_published_reports():
     env = {**os.environ, "PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8"}
     done = subprocess.run([sys.executable, "main.py", "--sample", "--run-all"], cwd=C.ROOT, env=env,
                           capture_output=True, text=True, encoding="utf-8", timeout=600)
-    assert "Traceback" not in done.stderr, done.stderr[-2000:]
+    assert done.returncode == 0, done.stdout[-2000:] + done.stderr[-2000:]
     run = C.SAMPLE_RUN
     assert (run / "reports" / "model_metrics.csv").exists()
     assert (run / "models" / "registry.json").exists()

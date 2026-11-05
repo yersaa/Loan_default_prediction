@@ -97,6 +97,13 @@ def test_prepare_is_skipped_in_sample_mode(tmp_project, monkeypatch, capsys):
 
 
 @pytest.mark.unit
+def test_benchmarks_are_skipped_in_sample_mode(tmp_project, monkeypatch, capsys):
+    monkeypatch.setattr(C, "SAMPLE_MODE", True)
+    app_main.step_benchmarks()
+    assert "шаг пропущен" in capsys.readouterr().out
+
+
+@pytest.mark.unit
 def test_activate_sample_redirects_outputs(monkeypatch):
     for name in ("PARQUET", "DB_PATH", "REPORTS", "FIGURES", "MODELS", "STATE_FILE", "SAMPLE_MODE"):
         monkeypatch.setattr(C, name, getattr(C, name))

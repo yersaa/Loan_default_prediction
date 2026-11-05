@@ -139,6 +139,9 @@ def step_predict() -> None:
 
 
 def step_benchmarks() -> None:
+    if C.SAMPLE_MODE:
+        print("Демо-режим: бенчмарки сравнивают форматы на исходном CSV, поэтому шаг пропущен.")
+        return
     from src.benchmark import run_benchmarks
     print(json.dumps(run_benchmarks(), ensure_ascii=False, indent=2))
 
