@@ -1,14 +1,13 @@
-"""Аудит качества данных: пропуски, дубликаты, некорректные значения, выбросы (IQR)."""
-import matplotlib
-
-matplotlib.use("Agg")
+"""Аудит качества данных: пропуски, дубликаты, некорректные значения, выбросы (IQR), покрытие колонок."""
 import matplotlib.pyplot as plt
 import pandas as pd
 
 from src import config as C
-from src.data_io import save_json
+from src.data_io import load_json, save_json
+from src.style import BLUE, save
 
-RAW_ROWS = 2_260_701  # строк в исходном CSV, включая служебные итоги
+HIGH_MISSING_PCT = 50
+OUTLIER_COLS = ["loan_amnt", "annual_inc", "dti", "revol_bal", "int_rate"]
 
 
 def iqr_outliers(s: pd.Series) -> dict:
@@ -33,30 +32,44 @@ def invalid_values(df: pd.DataFrame) -> dict:
     return {name: int(mask.sum()) for name, mask in checks.items()}
 
 
+def raw_column_audit(n_rows: int | None = None) -> dict | None:
+    """Покрытие всех колонок исходного файла (на первых строках): обоснование отбора 33 колонок."""
+    if not C.RAW_CSV.exists():
+        return None
+    raw = pd.read_csv(C.RAW_CSV, nrows=n_rows or C.MEMORY_SAMPLE_ROWS, low_memory=False)
+    missing = raw.isna().mean() * 100
+    return {"rows_checked": len(raw), "n_columns": raw.shape[1],
+            "columns_over_50pct_missing": int((missing > HIGH_MISSING_PCT).sum()),
+            "kept_columns": len(C.USECOLS),
+            "known_leakage_columns_excluded": sorted(set(C.LEAKAGE_COLS) & set(raw.columns))}
+
+
 def plot_missing(missing: pd.Series) -> None:
     top = missing[missing > 0].sort_values()
-    fig, ax = plt.subplots(figsize=(8, 5))
-    top.plot.barh(ax=ax, color="#4C72B0")
-    ax.set(title="Доля пропусков по колонкам, %", xlabel="%")
-    fig.tight_layout()
-    fig.savefig(C.FIGURES / "01_missing.png", dpi=120)
-    plt.close(fig)
+    fig, ax = plt.subplots(figsize=(8, 3.6))
+    ax.barh(top.index, top.values, color=BLUE, height=0.7)
+    ax.bar_label(ax.containers[0], fmt="%.2f", padding=2, fontsize=9)
+    ax.set(title="Доля пропусков в выбранных колонках", xlabel="Пропуски, %")
+    ax.grid(axis="y", visible=False)
+    save(fig, "01_missing.png")
 
 
 def run_audit(df: pd.DataFrame) -> dict:
     C.FIGURES.mkdir(parents=True, exist_ok=True)
     missing = (df.isna().mean() * 100).round(2)
     plot_missing(missing)
+    ingest = load_json(C.REPORTS / "ingest.json", default={})
     report = {
-        "rows_raw": RAW_ROWS,
+        "rows_raw": ingest.get("rows_raw"),
         "rows_after_removing_summary_lines": len(df),
-        "summary_lines_removed": RAW_ROWS - len(df),
+        "summary_lines_removed": ingest["rows_raw"] - len(df) if "rows_raw" in ingest else None,
         "duplicate_ids": int(df["id"].duplicated().sum()),
         "missing_pct": {k: v for k, v in missing.sort_values(ascending=False).items() if v > 0},
         "invalid_values": invalid_values(df),
-        "iqr_outliers": {c: iqr_outliers(df[c]) for c in ["loan_amnt", "annual_inc", "dti", "revol_bal", "int_rate"]},
+        "iqr_outliers": {c: iqr_outliers(df[c]) for c in OUTLIER_COLS},
         "loan_status": df["loan_status"].value_counts().to_dict(),
         "issue_year_range": [int(df["issue_d"].dt.year.min()), int(df["issue_d"].dt.year.max())],
+        "raw_columns": raw_column_audit(),
     }
     save_json(report, C.REPORTS / "audit.json")
     return report

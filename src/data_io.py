@@ -1,17 +1,32 @@
 """Чтение сырого CSV чанками, конвертация в Parquet, оптимизация типов и замеры памяти."""
 import json
 import time
+from pathlib import Path
+from typing import Any
 
 import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 
 from src import config as C
+from src.features import is_matured
 
 
 def mb(df: pd.DataFrame) -> float:
     """Объём DataFrame в памяти, МБ."""
     return round(df.memory_usage(deep=True).sum() / 2**20, 1)
+
+
+def save_json(obj: Any, path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(obj, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
+
+
+def load_json(path: Path, default: Any = None) -> Any:
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError):
+        return default
 
 
 def clean_chunk(df: pd.DataFrame) -> pd.DataFrame:
@@ -38,64 +53,86 @@ def optimize_dtypes(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def csv_to_parquet(src=C.RAW_CSV, dst=C.PARQUET, chunksize=C.CHUNKSIZE) -> dict:
+def csv_to_parquet(src: Path | None = None, dst: Path | None = None, chunksize: int | None = None) -> dict:
     """Читает CSV.gz чанками только с нужными колонками и пишет в один Parquet-файл."""
+    src, dst = src or C.RAW_CSV, dst or C.PARQUET
     if not src.exists():
         raise FileNotFoundError(f"Нет файла {src}. Скачайте его с Kaggle (см. README).")
     dst.parent.mkdir(parents=True, exist_ok=True)
-    start, rows, writer, schema = time.time(), 0, None, None
-    reader = pd.read_csv(src, usecols=C.USECOLS, dtype={"id": str}, chunksize=chunksize, low_memory=False)
-    for i, chunk in enumerate(reader, 1):
-        chunk = clean_chunk(chunk)[C.USECOLS]
-        table = pa.Table.from_pandas(chunk, preserve_index=False)
-        if writer is None:
-            schema = table.schema
-            writer = pq.ParquetWriter(dst, schema, compression="snappy")
-        writer.write_table(table.cast(schema))
-        rows += len(chunk)
-        print(f"  чанк {i}: всего {rows:,} строк")
-    writer.close()
-    stats = {"rows": rows, "seconds": round(time.time() - start, 1),
+    start, rows_raw, rows, schema = time.time(), 0, 0, None
+    writer = None
+    reader = pd.read_csv(src, usecols=C.USECOLS, dtype={"id": str}, chunksize=chunksize or C.CHUNKSIZE,
+                         low_memory=False)
+    try:
+        for i, chunk in enumerate(reader, 1):
+            rows_raw += len(chunk)
+            chunk = clean_chunk(chunk)[C.USECOLS]
+            table = pa.Table.from_pandas(chunk, preserve_index=False)
+            if writer is None:
+                schema = table.schema
+                writer = pq.ParquetWriter(dst, schema, compression="snappy")
+            writer.write_table(table.cast(schema))
+            rows += len(chunk)
+            print(f"  чанк {i}: всего {rows:,} строк")
+    finally:
+        if writer is not None:
+            writer.close()
+    stats = {"rows_raw": rows_raw, "rows": rows, "seconds": round(time.time() - start, 1),
              "csv_gz_mb": round(src.stat().st_size / 2**20, 1),
              "parquet_mb": round(dst.stat().st_size / 2**20, 1)}
+    save_json(stats, C.REPORTS / "ingest.json")
     print(f"Готово: {stats}")
     return stats
 
 
-def load_dataset(columns=None, path=C.PARQUET) -> pd.DataFrame:
+def load_dataset(columns: list | None = None, path: Path | None = None) -> pd.DataFrame:
     """Загружает Parquet и сразу оптимизирует типы."""
+    path = path or C.PARQUET
     if not path.exists():
         raise FileNotFoundError("Нет Parquet-файла. Сначала выполните пункт меню 1.")
     return optimize_dtypes(pd.read_parquet(path, columns=columns))
 
 
-def memory_report(n_rows=200_000) -> dict:
-    """Сравнивает память: все 151 колонка vs выбранные колонки vs выбранные + оптимизация типов."""
+def make_sample(src: Path | None = None, dst: Path | None = None) -> dict:
+    """Демо-выборка для запуска без Kaggle. Созревшие займы взяты с запасом, чтобы хватило на обучение,
+    поэтому доли и дефолтность по выборке НЕ отражают полный набор."""
+    df = load_dataset(path=src or C.PARQUET)
+    resolved = df["loan_status"].astype("object").isin(C.STATUS_TO_TARGET)
+    in_window = df["issue_d"].dt.year.between(*C.MODEL_YEARS)
+    term = df["term"].astype("object").str.extract(r"(\d+)")[0].astype("float32")
+    mask = resolved & in_window & is_matured(df["issue_d"], term)
+    n_matured = min(C.SAMPLE_MATURED_ROWS, int(mask.sum()))
+    n_other = min(C.SAMPLE_OTHER_ROWS, int((~mask).sum()))
+    sample = pd.concat([df[mask].sample(n_matured, random_state=C.RANDOM_STATE),
+                        df[~mask].sample(n_other, random_state=C.RANDOM_STATE)])
+    sample = sample.sort_values("issue_d", kind="stable")
+    dst = dst or C.SAMPLE_PARQUET
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    sample.to_parquet(dst, compression="snappy", index=False)
+    return {"rows": len(sample), "matured": n_matured, "mb": round(dst.stat().st_size / 2**20, 2)}
+
+
+def memory_report(n_rows: int | None = None) -> dict:
+    """Сравнивает память: все колонки vs выбранные колонки vs выбранные + оптимизация типов."""
+    n_rows = n_rows or C.MEMORY_SAMPLE_ROWS
+    if not C.RAW_CSV.exists():
+        raise FileNotFoundError(f"Нет файла {C.RAW_CSV}: для замера памяти нужен исходный CSV.")
     full = pd.read_csv(C.RAW_CSV, nrows=n_rows, low_memory=False)
     selected = full[C.USECOLS].copy()
     optimized = optimize_dtypes(clean_chunk(selected))
-    scale = 2_260_668 / n_rows
+    n_loaded = len(optimized)
     report = {
-        "sample_rows": n_rows,
-        "all_151_cols_mb": mb(full),
+        "sample_rows": n_loaded,
+        "n_columns_raw": full.shape[1],
+        "all_cols_mb": mb(full),
         "selected_cols_mb": mb(selected),
         "selected_optimized_mb": mb(optimized),
     }
-    report["full_dataset_estimate_mb"] = {k.replace("_mb", ""): round(v * scale)
-                                          for k, v in report.items() if k.endswith("_mb")}
     if C.PARQUET.exists():
-        report["full_parquet_loaded_optimized_mb"] = mb(load_dataset())
+        loaded = load_dataset()
+        scale = len(loaded) / n_loaded
+        report["full_parquet_loaded_optimized_mb"] = mb(loaded)
+        report["full_dataset_estimate_mb"] = {k.removesuffix("_mb"): round(report[k] * scale)
+                                              for k in ("all_cols_mb", "selected_cols_mb", "selected_optimized_mb")}
     save_json(report, C.REPORTS / "memory_report.json")
     return report
-
-
-def save_json(obj, path) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(obj, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
-
-
-def load_json(path, default=None):
-    try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except (FileNotFoundError, json.JSONDecodeError):
-        return default

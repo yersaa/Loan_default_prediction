@@ -1,15 +1,17 @@
 {
+  "method": "отдельный процесс на замер, медиана 3 запусков, прирост RSS",
   "memory": {
     "sample_rows": 200000,
-    "all_151_cols_mb": 272.8,
+    "n_columns_raw": 151,
+    "all_cols_mb": 272.8,
     "selected_cols_mb": 69.5,
     "selected_optimized_mb": 21.9,
+    "full_parquet_loaded_optimized_mb": 247.9,
     "full_dataset_estimate_mb": {
-      "all_151_cols": 3084,
+      "all_cols": 3084,
       "selected_cols": 786,
       "selected_optimized": 248
-    },
-    "full_parquet_loaded_optimized_mb": 247.9
+    }
   },
   "csv_vs_parquet": {
     "columns": [
@@ -21,27 +23,49 @@
       "loan_status"
     ],
     "csv_gz": {
-      "seconds": 9.85,
-      "peak_mb": 211.6,
-      "df_mb": 143.3,
+      "seconds": 9.4,
+      "peak_mb": 161.7,
+      "df_mb": 142.6,
+      "runs_seconds": [
+        10.04,
+        9.4,
+        9.38
+      ],
       "file_mb": 374.4
     },
     "parquet": {
-      "seconds": 0.16,
-      "peak_mb": 36.7,
+      "seconds": 0.21,
+      "peak_mb": 227.0,
       "df_mb": 47.4,
+      "runs_seconds": [
+        0.23,
+        0.21,
+        0.21
+      ],
       "file_mb": 76.0
     }
   },
   "pandas_vs_sql": {
     "task": "дефолтность по году и грейду",
     "pandas_parquet": {
-      "seconds": 3.22,
-      "peak_mb": 164.1
+      "seconds": 0.81,
+      "peak_mb": 387.4,
+      "df_mb": 0.0,
+      "runs_seconds": [
+        0.84,
+        0.81,
+        0.8
+      ]
     },
     "sqlite": {
-      "seconds": 1.24,
-      "peak_mb": 0.0
+      "seconds": 2.6,
+      "peak_mb": 5.4,
+      "df_mb": 0.0,
+      "runs_seconds": [
+        2.6,
+        2.59,
+        2.6
+      ]
     },
     "results_match": true
   }

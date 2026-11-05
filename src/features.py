@@ -1,4 +1,4 @@
-"""Целевая переменная, очистка, новые признаки и временное разбиение без утечки."""
+"""Целевая переменная, отбор созревших займов, очистка, новые признаки и временное разбиение."""
 import numpy as np
 import pandas as pd
 
@@ -11,13 +11,28 @@ def add_target(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def emp_to_years(value) -> float:
+def emp_to_years(value: object) -> float:
     """'10+ years' -> 10, '< 1 year' -> 0, '3 years' -> 3."""
     if pd.isna(value):
         return np.nan
     if value.startswith("<"):
         return 0.0
     return float(value.split()[0].rstrip("+"))
+
+
+def term_to_months(term: pd.Series) -> pd.Series:
+    """'36 months' -> 36.0."""
+    return term.astype("object").str.extract(r"(\d+)")[0].astype("float32")
+
+
+def is_matured(issue_d: pd.Series, term_months: pd.Series) -> pd.Series:
+    """Срок займа истёк к дате выгрузки.
+
+    Незрелые займы отбрасывать только по статусу нельзя: среди ещё не истёкших завершены
+    либо досрочно погашенные, либо уже списанные, поэтому дефолтность по ним смещена.
+    """
+    months_elapsed = (C.SNAPSHOT_YEAR - issue_d.dt.year) * 12 + (C.SNAPSHOT_MONTH - issue_d.dt.month)
+    return months_elapsed >= term_months
 
 
 def clean_values(df: pd.DataFrame) -> pd.DataFrame:
@@ -28,30 +43,41 @@ def clean_values(df: pd.DataFrame) -> pd.DataFrame:
     return df.drop_duplicates(subset="id")
 
 
-def build_features(df: pd.DataFrame) -> pd.DataFrame:
-    """Признаки, которые известны на момент подачи заявки."""
-    df = clean_values(df)
-    df["fico"] = ((df["fico_range_low"] + df["fico_range_high"]) / 2).astype("float32")
-    months = (df["issue_d"].dt.year - df["earliest_cr_line"].dt.year) * 12 \
-        + (df["issue_d"].dt.month - df["earliest_cr_line"].dt.month)
-    df["credit_hist_months"] = months.astype("float32")
-    df["term_months"] = df["term"].astype("object").str.extract(r"(\d+)")[0].astype("float32")
-    df["emp_years"] = df["emp_length"].astype("object").map(emp_to_years).astype("float32")
+def add_income_ratios(df: pd.DataFrame) -> pd.DataFrame:
+    """Общий код для обучения и скоринга: одна формула отношений к доходу."""
     df["loan_to_income"] = (df["loan_amnt"] / df["annual_inc"]).astype("float32")
     df["installment_to_income"] = (df["installment"] * 12 / df["annual_inc"]).astype("float32")
     return df
 
 
-def modeling_frame(df: pd.DataFrame) -> pd.DataFrame:
-    """Только завершённые займы в окне MODEL_YEARS."""
+def build_features(df: pd.DataFrame) -> pd.DataFrame:
+    """Признаки, которые известны до выдачи займа."""
+    df = clean_values(df)
+    df["fico"] = ((df["fico_range_low"] + df["fico_range_high"]) / 2).astype("float32")
+    months = (df["issue_d"].dt.year - df["earliest_cr_line"].dt.year) * 12 \
+        + (df["issue_d"].dt.month - df["earliest_cr_line"].dt.month)
+    df["credit_hist_months"] = months.astype("float32")
+    df["term_months"] = term_to_months(df["term"])
+    df["emp_years"] = df["emp_length"].astype("object").map(emp_to_years).astype("float32")
+    return add_income_ratios(df)
+
+
+def modeling_frame(df: pd.DataFrame, matured_only: bool = True) -> pd.DataFrame:
+    """Завершённые займы в окне MODEL_YEARS; по умолчанию только созревшие."""
     df = build_features(add_target(df))
     year = df["issue_d"].dt.year
     mask = df[C.TARGET].notna() & year.between(*C.MODEL_YEARS)
-    return df.loc[mask].sort_values("issue_d").reset_index(drop=True)
+    if matured_only:
+        mask &= is_matured(df["issue_d"], df["term_months"])
+    return df.loc[mask].sort_values("issue_d", kind="stable").reset_index(drop=True)
 
 
-def temporal_split(df: pd.DataFrame, test_year=C.TEST_YEAR):
-    """Train — займы до test_year, test — займы test_year. Без перемешивания."""
+def temporal_split(df: pd.DataFrame) -> dict:
+    """Окна по году выдачи, без перемешивания.
+
+    fit (2007–2013) и valid (2014) нужны для порога и калибровки,
+    train (2007–2014) — для финальной модели, test (2015) — только для оценки.
+    """
     year = df["issue_d"].dt.year
-    train, test = df[year < test_year], df[year == test_year]
-    return train[C.FEATURES], train[C.TARGET].astype(int), test[C.FEATURES], test[C.TARGET].astype(int)
+    return {"fit": df[year < C.VALID_YEAR], "valid": df[year == C.VALID_YEAR],
+            "train": df[year < C.TEST_YEAR], "test": df[year == C.TEST_YEAR]}

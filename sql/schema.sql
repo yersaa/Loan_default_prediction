@@ -68,6 +68,7 @@ CREATE TABLE outcomes (
     loan_id      INTEGER PRIMARY KEY REFERENCES loans(loan_id),
     loan_status  TEXT NOT NULL,
     is_default   INTEGER,          -- NULL, если займ ещё не завершён
+    is_matured   INTEGER NOT NULL, -- 1, если срок займа истёк к дате выгрузки (декабрь 2018)
     total_pymnt  REAL,
     recoveries   REAL,
     last_pymnt_d TEXT

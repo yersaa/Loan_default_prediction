@@ -1,10 +1,18 @@
-"""Консольное меню проекта: LendingClub — прогноз дефолта по займу."""
+"""Консольное меню проекта: LendingClub — прогноз дефолта по займу.
+
+python main.py                   интерактивное меню на полных данных
+python main.py --sample          меню на демо-выборке, результаты пишутся в sample_run/
+python main.py --run-all         весь пайплайн без меню
+python main.py --make-sample     пересобрать демо-выборку из полного Parquet
+"""
+import argparse
+import json
 from datetime import datetime
 
 import pandas as pd
 
 from src import config as C
-from src.data_io import csv_to_parquet, load_dataset, load_json, save_json
+from src.data_io import csv_to_parquet, load_dataset, load_json, make_sample, save_json
 
 pd.set_option("display.width", 160)
 pd.set_option("display.max_columns", 20)
@@ -21,6 +29,7 @@ MENU = {
     "9": "Выполнить шаги 1–6 и 8 по порядку",
     "0": "Выход",
 }
+PIPELINE = ["1", "2", "3", "4", "5", "6", "8"]
 
 
 def mark_done(step: str) -> None:
@@ -30,46 +39,53 @@ def mark_done(step: str) -> None:
     save_json(state, C.STATE_FILE)
 
 
-def step_prepare():
+def step_prepare() -> None:
+    if C.SAMPLE_MODE:
+        print("Демо-режим: выборка уже в формате Parquet, шаг не нужен.")
+        return
     csv_to_parquet()
 
 
-def step_audit():
+def step_audit() -> None:
     from src.audit import print_audit, run_audit
     print_audit(run_audit(load_dataset()))
 
 
-def step_database():
+def step_database() -> None:
     from src.database import build_database
     print(build_database(load_dataset()))
 
 
-def step_queries():
+def step_queries() -> None:
     from src.database import run_all_queries
     for name, df in run_all_queries().items():
         print(f"\n== {name}\n{df.head(10).to_string(index=False)}")
 
 
-def step_eda():
+def step_eda() -> None:
     from src.eda import run_eda
     from src.features import modeling_frame
     df = load_dataset()
     print("Графики:", run_eda(df, modeling_frame(df.copy())))
 
 
-def step_models():
+def step_models() -> None:
+    from src.censoring import censoring_sensitivity
     from src.explain import run_explain
-    from src.features import modeling_frame
+    from src.features import modeling_frame, temporal_split
     from src.models import train_and_compare, tune
-    model_df = modeling_frame(load_dataset())
-    train = model_df[model_df["issue_d"].dt.year < C.TEST_YEAR]
-    print(f"Train: {len(train):,}  Test: {len(model_df) - len(train):,}")
-    best = tune(train[C.FEATURES], train[C.TARGET])
+    df = load_dataset()
+    model_df = modeling_frame(df.copy())
+    windows = temporal_split(model_df)
+    train = windows["train"]
+    print(f"Созревшие займы. Train: {len(train):,}  Test: {len(windows['test']):,}")
+    best = tune(train[C.FEATURES], train[C.TARGET].astype(int))
     save_json(best, C.REPORTS / "tuning.json")
-    metrics, fitted, preds, test = train_and_compare(model_df, best)
-    print(metrics.to_string(index=False))
-    result = run_explain(fitted, preds, test, metrics)
+    metrics, fitted, preds, preds_raw, test = train_and_compare(model_df, best)
+    print(metrics[["model", "valid_auc", "roc_auc", "gini", "ks", "pr_auc", "brier", "f1"]].to_string(index=False))
+    result = run_explain(fitted, preds, preds_raw, test, metrics)
     print("\nОшибки по грейдам:\n", result["errors"].to_string(index=False))
+    print("\nЧувствительность к цензурированию:\n", censoring_sensitivity(df, best).to_string(index=False))
 
 
 def ask_number(prompt: str, default: float, low: float, high: float) -> float:
@@ -89,6 +105,7 @@ def ask_number(prompt: str, default: float, low: float, high: float) -> float:
 
 
 def ask_choice(prompt: str, options: list, default: str) -> str:
+    """Повторяет ввод, пока значение не окажется в списке (регистр не важен)."""
     while True:
         hint = options if len(options) <= 5 else f"{options[0]}…{options[-1]}"
         raw = input(f"  {prompt} {hint} [{default}]: ").strip().upper() or default
@@ -97,32 +114,32 @@ def ask_choice(prompt: str, options: list, default: str) -> str:
         print("    Выберите значение из списка.")
 
 
-def step_predict():
-    from src.models import predict_pd
+def step_predict() -> None:
+    from src.models import APPLICATION_LIMITS as L
+    from src.models import HOME_OPTIONS, SUB_GRADES, predict_pd
     print("Анкета заёмщика (Enter — значение по умолчанию):")
     raw = {
-        "loan_amnt": ask_number("Сумма займа, $", 15000, 500, 40000),
-        "term_months": ask_number("Срок, мес. (36/60)", 36, 36, 60),
-        "int_rate": ask_number("Ставка, %", 13.0, 5, 31),
-        "sub_grade": ask_choice("Подгрейд", [f"{g}{i}" for g in "ABCDEFG" for i in range(1, 6)], "C1"),
-        "annual_inc": ask_number("Годовой доход, $", 65000, 1000, 10_000_000),
-        "dti": ask_number("DTI (долговая нагрузка), %", 18, 0, 100),
-        "fico": ask_number("FICO", 700, 600, 850),
-        "emp_years": ask_number("Стаж, лет (0–10)", 5, 0, 10),
-        "revol_util": ask_number("Использование кредитных линий, %", 50, 0, 150),
-        "inq_last_6mths": ask_number("Запросов в бюро за 6 мес.", 1, 0, 30),
-        "credit_hist_months": ask_number("Длина кредитной истории, мес.", 180, 0, 900),
-        "home_ownership": ask_choice("Жильё", ["MORTGAGE", "RENT", "OWN"], "RENT"),
+        "loan_amnt": ask_number("Сумма займа, $", 15000, *L["loan_amnt"]),
+        "term_months": int(ask_choice("Срок, мес.", ["36", "60"], "36")),
+        "int_rate": ask_number("Ставка, %", 13.0, *L["int_rate"]),
+        "sub_grade": ask_choice("Подгрейд", SUB_GRADES, "C1"),
+        "annual_inc": ask_number("Годовой доход, $", 65000, *L["annual_inc"]),
+        "dti": ask_number("DTI (долговая нагрузка), %", 18, *L["dti"]),
+        "fico": ask_number("FICO", 700, *L["fico"]),
+        "emp_years": ask_number("Стаж, лет (0–10)", 5, *L["emp_years"]),
+        "revol_util": ask_number("Использование кредитных линий, %", 50, *L["revol_util"]),
+        "inq_last_6mths": ask_number("Запросов в бюро за 6 мес.", 1, *L["inq_last_6mths"]),
+        "credit_hist_months": ask_number("Длина кредитной истории, мес.", 180, *L["credit_hist_months"]),
+        "home_ownership": ask_choice("Жильё", HOME_OPTIONS, "RENT"),
         "purpose": "debt_consolidation", "verification_status": "Source Verified",
         "addr_state": "CA", "initial_list_status": "w", "application_type": "Individual",
     }
     for name, res in predict_pd(raw).items():
-        print(f"  {name:<20} PD = {res['pd']:.1%}  (порог {res['threshold']:.2f}) -> {res['decision']}")
+        print(f"  {name:<26} PD = {res['pd']:.1%}  (порог {res['threshold']:.2f}) -> {res['decision']}")
 
 
-def step_benchmarks():
+def step_benchmarks() -> None:
     from src.benchmark import run_benchmarks
-    import json
     print(json.dumps(run_benchmarks(), ensure_ascii=False, indent=2))
 
 
@@ -130,35 +147,74 @@ STEPS = {"1": step_prepare, "2": step_audit, "3": step_database, "4": step_queri
          "5": step_eda, "6": step_models, "7": step_predict, "8": step_benchmarks}
 
 
-def run_step(key: str) -> None:
+def run_step(key: str) -> bool:
+    """Выполняет шаг меню, не давая ожидаемым ошибкам завершить программу. True — шаг выполнен."""
     try:
         STEPS[key]()
-        mark_done(MENU[key])
-    except FileNotFoundError as e:
+    except (FileNotFoundError, ValueError) as e:
         print(f"Ошибка: {e}")
+        return False
     except (KeyboardInterrupt, EOFError):
         print("\nПрервано пользователем.")
+        return False
+    mark_done(MENU[key])
+    return True
 
 
-def main():
-    for d in (C.REPORTS, C.FIGURES, C.MODELS):
-        d.mkdir(parents=True, exist_ok=True)
+def run_pipeline() -> list:
+    """Шаги 1–6 и 8 по порядку. Возвращает номера шагов, которые не удалось выполнить."""
+    failed = []
+    for key in PIPELINE:
+        print(f"\n>>> {MENU[key]}")
+        if not run_step(key):
+            failed.append(key)
+    return failed
+
+
+def menu_loop() -> None:
     while True:
-        print("\n=== LendingClub: прогноз дефолта ===")
+        mode = " (демо-выборка)" if C.SAMPLE_MODE else ""
+        print(f"\n=== LendingClub: прогноз дефолта{mode} ===")
         for key, title in MENU.items():
             print(f"  {key} – {title}")
         choice = input("Выбор: ").strip()
         if choice == "0":
             break
         elif choice == "9":
-            for key in ["1", "2", "3", "4", "5", "6", "8"]:
-                print(f"\n>>> {MENU[key]}")
-                run_step(key)
+            run_pipeline()
         elif choice in STEPS:
             run_step(choice)
         else:
             print("Нет такого пункта.")
 
 
+def parse_args(argv: list | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="LendingClub: прогноз дефолта по займу")
+    parser.add_argument("--sample", action="store_true", help="демо-выборка, результаты в sample_run/")
+    parser.add_argument("--run-all", action="store_true", help="выполнить весь пайплайн без меню")
+    parser.add_argument("--make-sample", action="store_true", help="пересобрать демо-выборку из полного Parquet")
+    return parser.parse_args(argv)
+
+
+def main(argv: list | None = None) -> int:
+    args = parse_args(argv)
+    if args.make_sample:
+        print(make_sample())
+        return 0
+    if args.sample:
+        C.activate_sample()
+    for folder in (C.REPORTS, C.FIGURES, C.MODELS):
+        folder.mkdir(parents=True, exist_ok=True)
+    if args.run_all:
+        failed = run_pipeline()
+        print(f"\nНе выполнены шаги: {failed}" if failed else "\nВсе шаги выполнены.")
+        return 1 if failed else 0
+    try:
+        menu_loop()
+    except (KeyboardInterrupt, EOFError):
+        print("\nВыход.")
+    return 0
+
+
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

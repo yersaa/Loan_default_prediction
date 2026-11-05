@@ -3,16 +3,16 @@
     "params": {
       "model__C": 0.05
     },
-    "cv_auc": 0.7016,
-    "seconds": 19.4,
+    "cv_auc": 0.6799,
+    "seconds": 25.4,
     "grid": [
       {
         "params": "{'model__C': 0.05}",
-        "mean_test_score": 0.7016339943643478
+        "mean_test_score": 0.6799200039872716
       },
       {
         "params": "{'model__C': 1.0}",
-        "mean_test_score": 0.7015627990710421
+        "mean_test_score": 0.6799183213076203
       }
     ]
   },
@@ -21,24 +21,67 @@
       "model__n_estimators": 300,
       "model__num_leaves": 31
     },
-    "cv_auc": 0.7044,
-    "seconds": 105.7,
+    "cv_auc": 0.6838,
+    "seconds": 74.9,
     "grid": [
       {
         "params": "{'model__n_estimators': 300, 'model__num_leaves': 31}",
-        "mean_test_score": 0.7043962109961562
+        "mean_test_score": 0.6838118343634582
       },
       {
         "params": "{'model__n_estimators': 300, 'model__num_leaves': 63}",
-        "mean_test_score": 0.7024979318756123
+        "mean_test_score": 0.681944690334943
       },
       {
         "params": "{'model__n_estimators': 600, 'model__num_leaves': 31}",
-        "mean_test_score": 0.7021856607025473
+        "mean_test_score": 0.6813831336644461
       },
       {
         "params": "{'model__n_estimators': 600, 'model__num_leaves': 63}",
-        "mean_test_score": 0.6984278204592127
+        "mean_test_score": 0.6774002620672639
+      }
+    ]
+  },
+  "Logistic Regression (borrower only)": {
+    "params": {
+      "model__C": 0.05
+    },
+    "cv_auc": 0.6633,
+    "seconds": 16.1,
+    "grid": [
+      {
+        "params": "{'model__C': 0.05}",
+        "mean_test_score": 0.6633460492723079
+      },
+      {
+        "params": "{'model__C': 1.0}",
+        "mean_test_score": 0.6632197864573923
+      }
+    ]
+  },
+  "LightGBM (borrower only)": {
+    "params": {
+      "model__n_estimators": 300,
+      "model__num_leaves": 31
+    },
+    "cv_auc": 0.6719,
+    "seconds": 61.3,
+    "grid": [
+      {
+        "params": "{'model__n_estimators': 300, 'model__num_leaves': 31}",
+        "mean_test_score": 0.6718913017414008
+      },
+      {
+        "params": "{'model__n_estimators': 300, 'model__num_leaves': 63}",
+        "mean_test_score": 0.6711105871834531
+      },
+      {
+        "params": "{'model__n_estimators': 600, 'model__num_leaves': 31}",
+        "mean_test_score": 0.6710431848257681
+      },
+      {
+        "params": "{'model__n_estimators': 600, 'model__num_leaves': 63}",
+        "mean_test_score": 0.6675338229414166
       }
     ]
   }

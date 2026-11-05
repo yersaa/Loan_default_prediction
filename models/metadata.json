@@ -1,0 +1,14 @@
+{
+  "trained_at": "2026-11-05T12:22:55",
+  "sample_mode": false,
+  "python": "3.11.0",
+  "sklearn": "1.9.1",
+  "lightgbm": "4.7.0",
+  "pandas": "3.1.1",
+  "random_state": 42,
+  "cohort": "созревшие завершённые займы",
+  "train_rows": 393276,
+  "test_rows": 283026,
+  "train_last_issue": "2014-12-01",
+  "test_last_issue": "2015-12-01"
+}

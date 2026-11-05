@@ -1,18 +1,38 @@
 {
   "Dummy (prior)": {
     "file": "dummy.joblib",
-    "threshold": 0.05
+    "threshold": 0.05,
+    "platt_a": 1.0,
+    "platt_b": 0.0
   },
   "Grade only (LogReg)": {
     "file": "grade.joblib",
-    "threshold": 0.15999999999999998
+    "threshold": 0.14999999999999997,
+    "platt_a": 1.0065402103160799,
+    "platt_b": -0.0334740415622048
   },
   "Logistic Regression": {
     "file": "logistic.joblib",
-    "threshold": 0.18
+    "threshold": 0.14999999999999997,
+    "platt_a": 1.0064435923666029,
+    "platt_b": 0.09034982024133797
   },
   "LightGBM": {
     "file": "lightgbm.joblib",
-    "threshold": 0.18
+    "threshold": 0.14999999999999997,
+    "platt_a": 0.9360001589313676,
+    "platt_b": -0.0293858976648866
+  },
+  "Logistic Regression (borrower only)": {
+    "file": "logistic_borrower.joblib",
+    "threshold": 0.13999999999999999,
+    "platt_a": 1.0377447894816214,
+    "platt_b": 0.12321967368969812
+  },
+  "LightGBM (borrower only)": {
+    "file": "lightgbm_borrower.joblib",
+    "threshold": 0.14999999999999997,
+    "platt_a": 0.9530029488334099,
+    "platt_b": -0.027318902768721287
   }
 }

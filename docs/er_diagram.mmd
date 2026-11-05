@@ -38,6 +38,7 @@ erDiagram
     outcomes    { INTEGER loan_id PK,FK
                   TEXT loan_status
                   INTEGER is_default "NULL = not finished"
+                  INTEGER is_matured "1 = term ended by Dec 2018"
                   REAL total_pymnt "post-issue"
                   REAL recoveries "post-issue"
                   TEXT last_pymnt_d "post-issue" }

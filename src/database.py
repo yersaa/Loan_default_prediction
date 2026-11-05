@@ -2,11 +2,14 @@
 import re
 import sqlite3
 import time
+from collections.abc import Iterator
+from contextlib import contextmanager
+from pathlib import Path
 
 import pandas as pd
 
 from src import config as C
-from src.features import add_target, build_features
+from src.features import add_target, build_features, is_matured
 
 REGIONS = {
     "Northeast": "CT ME MA NH RI VT NJ NY PA",
@@ -17,9 +20,18 @@ REGIONS = {
 STATE_REGION = {s: r for r, states in REGIONS.items() for s in states.split()}
 
 
-def connect(path=C.DB_PATH) -> sqlite3.Connection:
+@contextmanager
+def connect(path: Path | None = None) -> Iterator[sqlite3.Connection]:
+    """Соединение с включёнными внешними ключами: коммит при успехе, всегда закрывается."""
+    path = path or C.DB_PATH
     path.parent.mkdir(parents=True, exist_ok=True)
-    return sqlite3.connect(path)
+    conn = sqlite3.connect(path)
+    try:
+        conn.execute("PRAGMA foreign_keys = ON")
+        yield conn
+        conn.commit()
+    finally:
+        conn.close()
 
 
 def dimension(values: pd.Series, id_col: str, name_col: str) -> pd.DataFrame:
@@ -43,7 +55,7 @@ def split_tables(df: pd.DataFrame) -> dict:
         "loan_amnt": df["loan_amnt"], "term_months": df["term_months"].astype(int),
         "int_rate": df["int_rate"], "installment": df["installment"],
         "sub_grade": df["sub_grade"].astype(str),
-        "purpose_id": df["purpose"].astype(str).map(dict(zip(purpose.purpose, purpose.purpose_id))),
+        "purpose_id": df["purpose"].astype(str).map(dict(zip(purpose.purpose, purpose.purpose_id, strict=True))),
         "state_code": df["addr_state"].astype(str),
         "verification_status": df["verification_status"].astype(str),
         "application_type": df["application_type"].astype(str),
@@ -53,10 +65,12 @@ def split_tables(df: pd.DataFrame) -> dict:
                      "inq_last_6mths", "open_acc", "pub_rec", "revol_bal", "revol_util", "total_acc",
                      "mort_acc", "pub_rec_bankruptcies"]
     borrowers = df[["id"] + borrower_cols].rename(columns={"id": "loan_id"})
-    borrowers.insert(1, "home_id", df["home_ownership"].astype(str).map(dict(zip(home.home_ownership, home.home_id))))
+    home_ids = dict(zip(home.home_ownership, home.home_id, strict=True))
+    borrowers.insert(1, "home_id", df["home_ownership"].astype(str).map(home_ids))
     outcomes = pd.DataFrame({
         "loan_id": df["id"], "loan_status": df["loan_status"].astype(str),
         "is_default": df[C.TARGET].astype("Int8"),
+        "is_matured": is_matured(df["issue_d"], df["term_months"]).astype(int),
         "total_pymnt": df["total_pymnt"], "recoveries": df["recoveries"],
         "last_pymnt_d": df["last_pymnt_d"].dt.strftime("%Y-%m-%d"),
     })
@@ -80,14 +94,14 @@ def build_database(df: pd.DataFrame) -> dict:
     return stats
 
 
-def load_queries(path=C.SQL_DIR / "queries.sql") -> dict:
+def load_queries(path: Path | None = None) -> dict:
     """Разбирает файл с запросами вида '-- name: <имя>' в словарь {имя: SQL}."""
-    text = path.read_text(encoding="utf-8")
+    text = (path or C.SQL_DIR / "queries.sql").read_text(encoding="utf-8")
     parts = re.split(r"^-- name: (\w+)\s*$", text, flags=re.M)[1:]
     return {parts[i]: parts[i + 1].strip() for i in range(0, len(parts), 2)}
 
 
-def run_query(name: str, queries=None) -> pd.DataFrame:
+def run_query(name: str, queries: dict | None = None) -> pd.DataFrame:
     """Выполняет запрос по имени и возвращает результат в Pandas."""
     if not C.DB_PATH.exists():
         raise FileNotFoundError("База не создана. Сначала выполните пункт меню 3.")
@@ -96,7 +110,7 @@ def run_query(name: str, queries=None) -> pd.DataFrame:
         return pd.read_sql_query(queries[name], conn)
 
 
-def run_all_queries(save=True) -> dict:
+def run_all_queries(save: bool = True) -> dict:
     """Выполняет все запросы, сохраняет результаты в reports/sql/*.csv."""
     queries, results = load_queries(), {}
     out = C.REPORTS / "sql"
