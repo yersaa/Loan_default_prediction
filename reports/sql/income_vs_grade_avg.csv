@@ -1,0 +1,15 @@
+grade,income_group,loans,default_rate_pct
+A,above_avg,84762,5.24
+A,below_avg,150431,6.5
+B,above_avg,136009,12.22
+B,below_avg,257093,14.02
+C,above_avg,137807,20.65
+C,below_avg,244516,23.45
+D,above_avg,73301,28.12
+D,below_avg,128356,31.67
+E,above_avg,35701,35.29
+E,below_avg,58491,40.35
+F,above_avg,12549,41.84
+F,below_avg,19757,47.24
+G,above_avg,3694,45.37
+G,below_avg,5632,52.49

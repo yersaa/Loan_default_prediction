@@ -1,0 +1,48 @@
+{
+  "memory": {
+    "sample_rows": 200000,
+    "all_151_cols_mb": 272.8,
+    "selected_cols_mb": 69.5,
+    "selected_optimized_mb": 21.9,
+    "full_dataset_estimate_mb": {
+      "all_151_cols": 3084,
+      "selected_cols": 786,
+      "selected_optimized": 248
+    },
+    "full_parquet_loaded_optimized_mb": 247.9
+  },
+  "csv_vs_parquet": {
+    "columns": [
+      "issue_d",
+      "grade",
+      "loan_amnt",
+      "int_rate",
+      "annual_inc",
+      "loan_status"
+    ],
+    "csv_gz": {
+      "seconds": 9.85,
+      "peak_mb": 211.6,
+      "df_mb": 143.3,
+      "file_mb": 374.4
+    },
+    "parquet": {
+      "seconds": 0.16,
+      "peak_mb": 36.7,
+      "df_mb": 47.4,
+      "file_mb": 76.0
+    }
+  },
+  "pandas_vs_sql": {
+    "task": "дефолтность по году и грейду",
+    "pandas_parquet": {
+      "seconds": 3.22,
+      "peak_mb": 164.1
+    },
+    "sqlite": {
+      "seconds": 1.24,
+      "peak_mb": 0.0
+    },
+    "results_match": true
+  }
+}

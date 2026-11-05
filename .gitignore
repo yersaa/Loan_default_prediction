@@ -1,0 +1,23 @@
+# Raw and derived data (see README for the Kaggle link)
+datasets/
+data/*
+!data/sample/
+db/
+
+# Sample-mode outputs must never overwrite the published full-run reports
+sample_run/
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.coverage
+htmlcov/
+.ipynb_checkpoints/
+
+# Run state
+reports/state.json
+
+# Course handout
+Темы_финальных_проектов_AI.pdf

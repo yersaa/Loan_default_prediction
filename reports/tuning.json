@@ -1,0 +1,45 @@
+{
+  "Logistic Regression": {
+    "params": {
+      "model__C": 0.05
+    },
+    "cv_auc": 0.7016,
+    "seconds": 19.4,
+    "grid": [
+      {
+        "params": "{'model__C': 0.05}",
+        "mean_test_score": 0.7016339943643478
+      },
+      {
+        "params": "{'model__C': 1.0}",
+        "mean_test_score": 0.7015627990710421
+      }
+    ]
+  },
+  "LightGBM": {
+    "params": {
+      "model__n_estimators": 300,
+      "model__num_leaves": 31
+    },
+    "cv_auc": 0.7044,
+    "seconds": 105.7,
+    "grid": [
+      {
+        "params": "{'model__n_estimators': 300, 'model__num_leaves': 31}",
+        "mean_test_score": 0.7043962109961562
+      },
+      {
+        "params": "{'model__n_estimators': 300, 'model__num_leaves': 63}",
+        "mean_test_score": 0.7024979318756123
+      },
+      {
+        "params": "{'model__n_estimators': 600, 'model__num_leaves': 31}",
+        "mean_test_score": 0.7021856607025473
+      },
+      {
+        "params": "{'model__n_estimators': 600, 'model__num_leaves': 63}",
+        "mean_test_score": 0.6984278204592127
+      }
+    ]
+  }
+}

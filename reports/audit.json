@@ -1,0 +1,69 @@
+{
+  "rows_raw": 2260701,
+  "rows_after_removing_summary_lines": 2260668,
+  "summary_lines_removed": 33,
+  "duplicate_ids": 0,
+  "missing_pct": {
+    "emp_length": 6.5,
+    "mort_acc": 2.21,
+    "last_pymnt_d": 0.11,
+    "revol_util": 0.08,
+    "dti": 0.08,
+    "pub_rec_bankruptcies": 0.06
+  },
+  "invalid_values": {
+    "annual_inc <= 0": 1667,
+    "dti < 0 или >= 999": 137,
+    "revol_util > 150%": 28,
+    "fico_range_low > fico_range_high": 0,
+    "earliest_cr_line позже issue_d": 0,
+    "int_rate вне 5–31%": 0
+  },
+  "iqr_outliers": {
+    "loan_amnt": {
+      "low": -10000.0,
+      "high": 38000.0,
+      "count": 35215,
+      "share_pct": 1.56
+    },
+    "annual_inc": {
+      "low": -24500.0,
+      "high": 163500.0,
+      "count": 110041,
+      "share_pct": 4.87
+    },
+    "dti": {
+      "low": -7.01,
+      "high": 43.39,
+      "count": 21580,
+      "share_pct": 0.96
+    },
+    "revol_bal": {
+      "low": -15494.0,
+      "high": 41690.0,
+      "count": 137095,
+      "share_pct": 6.06
+    },
+    "int_rate": {
+      "low": -0.26,
+      "high": 25.74,
+      "count": 41099,
+      "share_pct": 1.82
+    }
+  },
+  "loan_status": {
+    "Fully Paid": 1076751,
+    "Current": 878317,
+    "Charged Off": 268559,
+    "Late (31-120 days)": 21467,
+    "In Grace Period": 8436,
+    "Late (16-30 days)": 4349,
+    "Does not meet the credit policy. Status:Fully Paid": 1988,
+    "Does not meet the credit policy. Status:Charged Off": 761,
+    "Default": 40
+  },
+  "issue_year_range": [
+    2007,
+    2018
+  ]
+}

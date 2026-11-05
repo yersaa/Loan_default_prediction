@@ -1,0 +1,18 @@
+{
+  "Dummy (prior)": {
+    "file": "dummy.joblib",
+    "threshold": 0.05
+  },
+  "Grade only (LogReg)": {
+    "file": "grade.joblib",
+    "threshold": 0.15999999999999998
+  },
+  "Logistic Regression": {
+    "file": "logistic.joblib",
+    "threshold": 0.18
+  },
+  "LightGBM": {
+    "file": "lightgbm.joblib",
+    "threshold": 0.18
+  }
+}

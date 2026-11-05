@@ -1,0 +1,43 @@
+erDiagram
+    dim_grade   ||--o{ loans : "sub_grade"
+    dim_purpose ||--o{ loans : "purpose_id"
+    dim_state   ||--o{ loans : "state_code"
+    dim_home    ||--o{ borrowers : "home_id"
+    loans       ||--|| borrowers : "loan_id"
+    loans       ||--|| outcomes : "loan_id"
+
+    dim_grade   { TEXT sub_grade PK
+                  TEXT grade }
+    dim_purpose { INTEGER purpose_id PK
+                  TEXT purpose }
+    dim_state   { TEXT state_code PK
+                  TEXT region }
+    dim_home    { INTEGER home_id PK
+                  TEXT home_ownership }
+    loans       { INTEGER loan_id PK
+                  TEXT issue_d
+                  REAL loan_amnt
+                  INTEGER term_months
+                  REAL int_rate
+                  REAL installment
+                  TEXT sub_grade FK
+                  INTEGER purpose_id FK
+                  TEXT state_code FK
+                  TEXT verification_status
+                  TEXT application_type
+                  TEXT initial_list_status }
+    borrowers   { INTEGER loan_id PK,FK
+                  INTEGER home_id FK
+                  REAL annual_inc
+                  REAL dti
+                  REAL fico
+                  REAL emp_years
+                  REAL credit_hist_months
+                  REAL revol_util
+                  REAL other_bureau_fields "delinq, inq, open_acc, pub_rec, mort_acc..." }
+    outcomes    { INTEGER loan_id PK,FK
+                  TEXT loan_status
+                  INTEGER is_default "NULL = not finished"
+                  REAL total_pymnt "post-issue"
+                  REAL recoveries "post-issue"
+                  TEXT last_pymnt_d "post-issue" }
