@@ -7,6 +7,7 @@ python main.py --make-sample     пересобрать демо-выборку 
 """
 import argparse
 import json
+import sqlite3
 from datetime import datetime
 
 import pandas as pd
@@ -30,6 +31,7 @@ MENU = {
     "0": "Выход",
 }
 PIPELINE = ["1", "2", "3", "4", "5", "6", "8"]
+EXIT_INTERRUPTED = 130  # общепринятый код завершения после Ctrl+C
 
 
 def mark_done(step: str) -> None:
@@ -151,21 +153,24 @@ STEPS = {"1": step_prepare, "2": step_audit, "3": step_database, "4": step_queri
 
 
 def run_step(key: str) -> bool:
-    """Выполняет шаг меню, не давая ожидаемым ошибкам завершить программу. True — шаг выполнен."""
+    """Выполняет шаг меню, не давая ожидаемым ошибкам завершить программу. True — шаг выполнен.
+
+    KeyboardInterrupt здесь не перехватывается: Ctrl+C должен остановить и весь пайплайн.
+    """
     try:
         STEPS[key]()
-    except (FileNotFoundError, ValueError) as e:
+    except (FileNotFoundError, ValueError, sqlite3.Error, pd.errors.DatabaseError) as e:
         print(f"Ошибка: {e}")
-        return False
-    except (KeyboardInterrupt, EOFError):
-        print("\nПрервано пользователем.")
         return False
     mark_done(MENU[key])
     return True
 
 
 def run_pipeline() -> list:
-    """Шаги 1–6 и 8 по порядку. Возвращает номера шагов, которые не удалось выполнить."""
+    """Шаги 1–6 и 8 по порядку; неудачный шаг не мешает остальным, Ctrl+C останавливает всё.
+
+    Возвращает номера шагов, которые не удалось выполнить.
+    """
     failed = []
     for key in PIPELINE:
         print(f"\n>>> {MENU[key]}")
@@ -183,12 +188,15 @@ def menu_loop() -> None:
         choice = input("Выбор: ").strip()
         if choice == "0":
             break
-        elif choice == "9":
-            run_pipeline()
-        elif choice in STEPS:
-            run_step(choice)
-        else:
-            print("Нет такого пункта.")
+        try:
+            if choice == "9":
+                run_pipeline()
+            elif choice in STEPS:
+                run_step(choice)
+            else:
+                print("Нет такого пункта.")
+        except KeyboardInterrupt:  # Ctrl+C прерывает шаг и возвращает в меню
+            print("\nПрервано пользователем.")
 
 
 def parse_args(argv: list | None = None) -> argparse.Namespace:
@@ -209,7 +217,11 @@ def main(argv: list | None = None) -> int:
     for folder in (C.REPORTS, C.FIGURES, C.MODELS):
         folder.mkdir(parents=True, exist_ok=True)
     if args.run_all:
-        failed = run_pipeline()
+        try:
+            failed = run_pipeline()
+        except KeyboardInterrupt:
+            print("\nПрервано пользователем: оставшиеся шаги не выполнены.")
+            return EXIT_INTERRUPTED
         print(f"\nНе выполнены шаги: {failed}" if failed else "\nВсе шаги выполнены.")
         return 1 if failed else 0
     try:

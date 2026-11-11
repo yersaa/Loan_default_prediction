@@ -44,13 +44,35 @@ def test_run_step_reports_missing_file_and_does_not_mark_done(tmp_project, monke
     assert load_json(C.STATE_FILE) is None
 
 
+def _stop():
+    raise KeyboardInterrupt
+
+
 @pytest.mark.unit
-def test_run_step_handles_interrupt(tmp_project, monkeypatch, capsys):
-    def stop():
-        raise KeyboardInterrupt
-    monkeypatch.setitem(app_main.STEPS, "2", stop)
-    assert app_main.run_step("2") is False
+def test_interrupt_in_menu_returns_to_menu_and_is_not_marked_done(tmp_project, monkeypatch, capsys):
+    monkeypatch.setitem(app_main.STEPS, "2", _stop)
+    _feed(monkeypatch, ["2", "0"])
+    app_main.menu_loop()
     assert "Прервано" in capsys.readouterr().out
+    assert load_json(C.STATE_FILE) is None
+
+
+@pytest.mark.unit
+def test_interrupt_stops_run_all_and_skips_remaining_steps(tmp_project, monkeypatch, capsys):
+    calls = []
+    for key in app_main.PIPELINE:
+        monkeypatch.setitem(app_main.STEPS, key, lambda k=key: calls.append(k))
+    monkeypatch.setitem(app_main.STEPS, "3", _stop)
+    assert app_main.main(["--run-all"]) == app_main.EXIT_INTERRUPTED
+    assert calls == ["1", "2"]
+    assert "оставшиеся шаги не выполнены" in capsys.readouterr().out
+
+
+@pytest.mark.integration
+def test_benchmarks_without_database_report_error_and_create_nothing(tmp_project, capsys):
+    assert app_main.run_step("8") is False
+    assert "пункт меню 3" in capsys.readouterr().out
+    assert not C.DB_PATH.exists()
 
 
 @pytest.mark.unit
