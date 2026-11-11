@@ -5,7 +5,15 @@ import pytest
 
 from src import config as C
 from src.audit import invalid_values, iqr_outliers, plot_missing, print_audit, run_audit
-from src.benchmark import fit_memory, pandas_aggregate, results_match, run_benchmarks, sql_aggregate
+from src.benchmark import (
+    TRAIN_SNAPSHOT,
+    fit_memory,
+    pandas_aggregate,
+    results_match,
+    run_benchmarks,
+    save_train_snapshot,
+    sql_aggregate,
+)
 from src.database import build_database, run_all_queries
 from src.eda import run_eda
 from src.explain import approval_table, error_analysis, grade_recovery, missed_defaults_profile, run_explain
@@ -113,6 +121,9 @@ def test_eda_and_explain_create_all_artifacts(tmp_project, loans, fast_best):
 def test_fit_memory_measures_one_model(tmp_project, loans):
     C.PARQUET.parent.mkdir(parents=True, exist_ok=True)
     loans.to_parquet(C.PARQUET, index=False)
+    snapshot = save_train_snapshot()
+    assert snapshot == C.REPORTS / TRAIN_SNAPSHOT
+    assert C.TARGET in pd.read_parquet(snapshot).columns
     assert fit_memory("logistic") >= 0
     with pytest.raises(StopIteration):
         fit_memory("no_such_model")

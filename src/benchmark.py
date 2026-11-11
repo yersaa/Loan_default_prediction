@@ -7,6 +7,7 @@ import multiprocessing as mp
 import statistics
 from collections.abc import Callable
 from concurrent.futures import ProcessPoolExecutor
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -18,6 +19,7 @@ from src.profiling import measure
 
 CSV_COLS = ["issue_d", "grade", "loan_amnt", "int_rate", "annual_inc", "loan_status"]
 REPEATS = 3
+TRAIN_SNAPSHOT = "train_snapshot.parquet"  # временный файл для замеров памяти моделей
 
 AGG_SQL = """
 SELECT CAST(substr(l.issue_d, 1, 4) AS INTEGER) AS issue_year, g.grade,
@@ -86,17 +88,31 @@ def run_task(name: str, repeats: int = REPEATS) -> dict:
             "df_mb": sizes[0], "runs_seconds": [round(s, 2) for s in seconds]}
 
 
+def save_train_snapshot() -> Path:
+    """Сохраняет обучающее окно (признаки и таргет) в отдельный Parquet для замеров памяти.
+
+    Если готовить данные в том же процессе, где идёт замер, память, освобождённая после подготовки,
+    переиспользуется при обучении, и прирост занижается (у LightGBM получался 0 МБ).
+    Поэтому процесс замера читает только готовый обучающий набор.
+    """
+    from src.features import modeling_frame, temporal_split  # тяжёлые импорты нужны только этой задаче
+
+    train = temporal_split(modeling_frame(load_dataset()))["train"]
+    path = C.REPORTS / TRAIN_SNAPSHOT
+    train[C.FEATURES + [C.TARGET]].to_parquet(path, index=False)
+    return path
+
+
 def fit_memory(slug: str) -> float:
     """Прирост пиковой памяти процесса (МБ) за время обучения одной модели на train.
 
-    Загрузка данных и подготовка признаков идут до замера: измеряется только model.fit.
+    Обучающий набор загружается до замера: измеряется только model.fit.
     """
-    from src.features import modeling_frame, temporal_split  # тяжёлые импорты нужны только этой задаче
     from src.models import build_model, model_specs
 
     spec = next(s for s in model_specs() if s.slug == slug)
     best = load_json(C.REPORTS / "tuning.json", default={})
-    train = temporal_split(modeling_frame(load_dataset()))["train"]
+    train = pd.read_parquet(C.REPORTS / TRAIN_SNAPSHOT)
     model = build_model(spec, best)
     with measure() as m:
         model.fit(train[C.FEATURES], train[C.TARGET].astype(int))
@@ -114,12 +130,16 @@ def model_fit_memory(repeats: int = REPEATS) -> dict:
     """Память обучения каждой модели: {название модели: медиана и все запуски, МБ}."""
     from src.models import model_specs
 
+    snapshot = save_train_snapshot()
     report = {}
-    for spec in model_specs():
-        peaks = run_isolated(_isolated_fit, spec.slug, repeats)
-        report[spec.name] = {"fit_peak_mb": round(statistics.median(peaks), 1),
-                             "runs_mb": [round(p, 1) for p in peaks]}
-        print(f"  {spec.name:<36} память обучения {report[spec.name]['fit_peak_mb']:>7.1f} МБ")
+    try:
+        for spec in model_specs():
+            peaks = run_isolated(_isolated_fit, spec.slug, repeats)
+            report[spec.name] = {"fit_peak_mb": round(statistics.median(peaks), 1),
+                                 "runs_mb": [round(p, 1) for p in peaks]}
+            print(f"  {spec.name:<36} память обучения {report[spec.name]['fit_peak_mb']:>7.1f} МБ")
+    finally:
+        snapshot.unlink(missing_ok=True)  # временный файл, в отчёты не входит
     return report
 
 
