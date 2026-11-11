@@ -1,6 +1,8 @@
 """Чтение сырого CSV чанками, конвертация в Parquet, оптимизация типов и замеры памяти."""
+import gzip
 import json
 import time
+import zlib
 from pathlib import Path
 from typing import Any
 
@@ -54,29 +56,42 @@ def optimize_dtypes(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def csv_to_parquet(src: Path | None = None, dst: Path | None = None, chunksize: int | None = None) -> dict:
-    """Читает CSV.gz чанками только с нужными колонками и пишет в один Parquet-файл."""
+    """Читает CSV.gz чанками только с нужными колонками и пишет в один Parquet-файл.
+
+    Пишет во временный файл и заменяет им результат только после успеха: прерванная
+    конвертация не оставляет усечённый, но читаемый Parquet вместо прежнего.
+    """
     src, dst = src or C.RAW_CSV, dst or C.PARQUET
     if not src.exists():
         raise FileNotFoundError(f"Нет файла {src}. Скачайте его с Kaggle (см. README).")
     dst.parent.mkdir(parents=True, exist_ok=True)
+    tmp = dst.with_name(dst.name + ".tmp")
     start, rows_raw, rows, schema = time.time(), 0, 0, None
     writer = None
-    reader = pd.read_csv(src, usecols=C.USECOLS, dtype={"id": str}, chunksize=chunksize or C.CHUNKSIZE,
-                         low_memory=False)
     try:
-        for i, chunk in enumerate(reader, 1):
-            rows_raw += len(chunk)
-            chunk = clean_chunk(chunk)[C.USECOLS]
-            table = pa.Table.from_pandas(chunk, preserve_index=False)
-            if writer is None:
-                schema = table.schema
-                writer = pq.ParquetWriter(dst, schema, compression="snappy")
-            writer.write_table(table.cast(schema))
-            rows += len(chunk)
-            print(f"  чанк {i}: всего {rows:,} строк")
+        try:
+            reader = pd.read_csv(src, usecols=C.USECOLS, dtype={"id": str}, chunksize=chunksize or C.CHUNKSIZE,
+                                 low_memory=False)
+            for i, chunk in enumerate(reader, 1):
+                rows_raw += len(chunk)
+                chunk = clean_chunk(chunk)[C.USECOLS]
+                table = pa.Table.from_pandas(chunk, preserve_index=False)
+                if writer is None:
+                    schema = table.schema
+                    writer = pq.ParquetWriter(tmp, schema, compression="snappy")
+                writer.write_table(table.cast(schema))
+                rows += len(chunk)
+                print(f"  чанк {i}: всего {rows:,} строк")
+        except (EOFError, gzip.BadGzipFile, zlib.error) as e:
+            raise ValueError(f"Файл {src} повреждён или скачан не полностью: {e}") from e
+        finally:
+            if writer is not None:
+                writer.close()
+        if writer is None:
+            raise ValueError(f"В файле {src} нет строк с данными.")
+        tmp.replace(dst)
     finally:
-        if writer is not None:
-            writer.close()
+        tmp.unlink(missing_ok=True)
     stats = {"rows_raw": rows_raw, "rows": rows, "seconds": round(time.time() - start, 1),
              "csv_gz_mb": round(src.stat().st_size / 2**20, 1),
              "parquet_mb": round(dst.stat().st_size / 2**20, 1)}

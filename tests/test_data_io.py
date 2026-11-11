@@ -98,6 +98,43 @@ def test_csv_to_parquet_roundtrip(tmp_project, loans):
     assert load_dataset(["id", "grade"]).shape[1] == 2
 
 
+def _write_valid_parquet(loans):
+    C.PARQUET.parent.mkdir(parents=True, exist_ok=True)
+    loans.head(100).to_parquet(C.PARQUET, index=False)
+    return C.PARQUET.read_bytes()
+
+
+@pytest.mark.integration
+def test_truncated_download_keeps_previous_parquet(tmp_project, loans):
+    """Обрезанный .gz: раньше на месте хорошего файла оставался усечённый, но читаемый Parquet."""
+    before = _write_valid_parquet(loans)
+    _write_raw_csv(C.RAW_CSV, loans.head(1500))
+    raw = C.RAW_CSV.read_bytes()
+    C.RAW_CSV.write_bytes(raw[:len(raw) // 2])
+    with pytest.raises(ValueError, match="скачан не полностью"):
+        csv_to_parquet(chunksize=200)
+    assert C.PARQUET.read_bytes() == before
+    assert not list(C.PARQUET.parent.glob("*.tmp"))
+
+
+@pytest.mark.integration
+def test_interrupted_conversion_keeps_previous_parquet(tmp_project, loans, monkeypatch):
+    before = _write_valid_parquet(loans)
+    _write_raw_csv(C.RAW_CSV, loans.head(1500))
+    calls = {"n": 0}
+
+    def interrupt_on_second_chunk(chunk):
+        calls["n"] += 1
+        if calls["n"] == 2:
+            raise KeyboardInterrupt
+        return clean_chunk(chunk)
+    monkeypatch.setattr("src.data_io.clean_chunk", interrupt_on_second_chunk)
+    with pytest.raises(KeyboardInterrupt):
+        csv_to_parquet(chunksize=400)
+    assert C.PARQUET.read_bytes() == before
+    assert not list(C.PARQUET.parent.glob("*.tmp"))
+
+
 @pytest.mark.integration
 def test_make_sample_prefers_matured(tmp_project, loans, monkeypatch):
     monkeypatch.setattr(C, "SAMPLE_MATURED_ROWS", 300)
