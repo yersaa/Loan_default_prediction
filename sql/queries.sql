@@ -115,22 +115,25 @@ GROUP BY dti_decile
 ORDER BY dti_decile;
 
 -- name: income_vs_grade_avg
--- 8. Подзапрос: доход выше/ниже среднего по своему подгрейду — влияет ли на дефолт
-WITH grade_income AS (
-    SELECT l.sub_grade, AVG(b.annual_inc) AS avg_inc
-    FROM loans l JOIN borrowers b ON b.loan_id = l.loan_id
-    GROUP BY l.sub_grade
+-- 8. CTE + подзапрос в FROM: доход выше/ниже среднего по своему подгрейду — влияет ли на дефолт.
+-- Среднее считается по тем же созревшим займам, что и дефолтность; займы без дохода не учитываются
+-- (иначе они попали бы в группу below_avg, хотя их доход неизвестен).
+WITH matured AS (
+    SELECT l.sub_grade, b.annual_inc, o.is_default
+    FROM loans l
+    JOIN borrowers b ON b.loan_id = l.loan_id
+    JOIN outcomes o  ON o.loan_id = l.loan_id
+    WHERE o.is_default IS NOT NULL AND o.is_matured = 1 AND b.annual_inc IS NOT NULL
 )
 SELECT g.grade,
-       CASE WHEN b.annual_inc > (SELECT gi.avg_inc FROM grade_income gi WHERE gi.sub_grade = l.sub_grade)
-            THEN 'above_avg' ELSE 'below_avg' END AS income_group,
+       CASE WHEN m.annual_inc > gi.avg_inc THEN 'above_avg' ELSE 'below_avg' END AS income_group,
        COUNT(*)                          AS loans,
-       ROUND(AVG(o.is_default) * 100, 2) AS default_rate_pct
-FROM loans l
-JOIN borrowers b ON b.loan_id = l.loan_id
-JOIN outcomes o  ON o.loan_id = l.loan_id
-JOIN dim_grade g ON g.sub_grade = l.sub_grade
-WHERE o.is_default IS NOT NULL AND o.is_matured = 1
+       ROUND(AVG(m.is_default) * 100, 2) AS default_rate_pct
+FROM matured m
+JOIN (SELECT sub_grade, AVG(annual_inc) AS avg_inc   -- средний доход по подгрейду
+      FROM matured
+      GROUP BY sub_grade) gi ON gi.sub_grade = m.sub_grade
+JOIN dim_grade g ON g.sub_grade = m.sub_grade
 GROUP BY g.grade, income_group
 ORDER BY g.grade, income_group;
 

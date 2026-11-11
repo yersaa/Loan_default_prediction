@@ -78,6 +78,22 @@ def test_default_by_grade_matches_pandas(db, loans):
         assert sql.loc[grade, "default_rate_pct"] == pytest.approx(100 * expected.loc[grade, "mean"], abs=0.01)
 
 
+def test_income_query_uses_matured_loans_with_known_income(tmp_project, loans):
+    """Среднее по подгрейду считается по созревшим займам; займ без дохода не попадает ни в одну группу."""
+    data = loans.copy()
+    data.loc[data.index[0], "annual_inc"] = float("nan")
+    build_database(data.copy())
+    known = _matured_resolved(data).dropna(subset=["annual_inc"])
+    above = known["annual_inc"] > known.groupby("sub_grade", observed=True)["annual_inc"].transform("mean")
+    group = above.map({True: "above_avg", False: "below_avg"}).rename("income_group")
+    expected = known.groupby(["grade", group], observed=True)["y"].agg(["size", "mean"])
+    sql = run_query("income_vs_grade_avg").set_index(["grade", "income_group"])
+    assert sql["loans"].sum() == len(known)
+    assert sql["loans"].to_dict() == expected["size"].to_dict()
+    for key in expected.index:
+        assert sql.loc[key, "default_rate_pct"] == pytest.approx(100 * expected.loc[key, "mean"], abs=0.01)
+
+
 def test_vintage_query_reports_censoring(db, loans):
     vintage = run_query("vintage_by_year_term")
     row = vintage[(vintage.issue_year == 2017) & (vintage.term_months == 60)].iloc[0]
