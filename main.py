@@ -41,7 +41,11 @@ def mark_done(step: str) -> None:
     save_json(state, C.STATE_FILE)
 
 
+# Каждый пункт меню — отдельная функция step_*. Модули src импортируются внутри функций:
+# меню открывается сразу, а тяжёлые библиотеки (LightGBM, SHAP, matplotlib) загружаются только когда нужны.
+
 def step_prepare() -> None:
+    """Пункт 1: читает исходный CSV.gz частями и сохраняет нужные колонки в Parquet."""
     if C.SAMPLE_MODE:
         print("Демо-режим: выборка уже в формате Parquet, шаг не нужен.")
         return
@@ -49,22 +53,26 @@ def step_prepare() -> None:
 
 
 def step_audit() -> None:
+    """Пункт 2: считает пропуски, дубликаты, некорректные значения и выбросы, сохраняет reports/audit.json."""
     from src.audit import print_audit, run_audit
     print_audit(run_audit(load_dataset()))
 
 
 def step_database() -> None:
+    """Пункт 3: раскладывает таблицу займов по нормализованной схеме и загружает её в SQLite."""
     from src.database import build_database
     print(build_database(load_dataset()))
 
 
 def step_queries() -> None:
+    """Пункт 4: выполняет все запросы из sql/queries.sql и печатает первые 10 строк каждого."""
     from src.database import run_all_queries
     for name, df in run_all_queries().items():
         print(f"\n== {name}\n{df.head(10).to_string(index=False)}")
 
 
 def step_eda() -> None:
+    """Пункт 5: строит графики EDA. Часть графиков берёт данные из SQL, поэтому нужна база (пункт 3)."""
     from src.eda import run_eda
     from src.features import modeling_frame
     df = load_dataset()
@@ -72,6 +80,7 @@ def step_eda() -> None:
 
 
 def step_models() -> None:
+    """Пункт 6: подбор гиперпараметров, обучение и сравнение моделей, SHAP, ошибки и чувствительность."""
     from src.censoring import censoring_sensitivity
     from src.explain import run_explain
     from src.features import modeling_frame, temporal_split
@@ -118,6 +127,7 @@ def ask_choice(prompt: str, options: list, default: str) -> str:
 
 
 def step_predict() -> None:
+    """Пункт 7: спрашивает анкету заёмщика и печатает вероятность дефолта и решение каждой модели."""
     from src.models import APPLICATION_LIMITS as L
     from src.models import HOME_OPTIONS, SUB_GRADES, predict_pd
     print("Анкета заёмщика (Enter — значение по умолчанию):")
@@ -142,6 +152,7 @@ def step_predict() -> None:
 
 
 def step_benchmarks() -> None:
+    """Пункт 8: CSV против Parquet, Pandas против SQL, память моделей. Нужны исходный CSV, база и пункт 6."""
     if C.SAMPLE_MODE:
         print("Демо-режим: бенчмарки сравнивают форматы на исходном CSV, поэтому шаг пропущен.")
         return
@@ -181,6 +192,7 @@ def run_pipeline() -> list:
 
 
 def menu_loop() -> None:
+    """Показывает меню и выполняет выбранный пункт, пока пользователь не введёт 0."""
     while True:
         mode = " (демо-выборка)" if C.SAMPLE_MODE else ""
         print(f"\n=== LendingClub: прогноз дефолта{mode} ===")
@@ -201,6 +213,7 @@ def menu_loop() -> None:
 
 
 def parse_args(argv: list | None = None) -> argparse.Namespace:
+    """Разбирает флаги командной строки: --sample, --run-all, --make-sample."""
     parser = argparse.ArgumentParser(description="LendingClub: прогноз дефолта по займу")
     parser.add_argument("--sample", action="store_true", help="демо-выборка, результаты в sample_run/")
     parser.add_argument("--run-all", action="store_true", help="выполнить весь пайплайн без меню")
@@ -209,6 +222,7 @@ def parse_args(argv: list | None = None) -> argparse.Namespace:
 
 
 def main(argv: list | None = None) -> int:
+    """Точка входа. Код завершения: 0 — успех, 1 — часть шагов не выполнена, 130 — прервано Ctrl+C."""
     args = parse_args(argv)
     if args.make_sample:
         print(make_sample())

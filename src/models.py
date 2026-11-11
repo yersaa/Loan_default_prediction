@@ -7,6 +7,7 @@ import platform
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
+from pathlib import Path
 
 import joblib
 import numpy as np
@@ -46,28 +47,32 @@ HOME_OPTIONS = ["MORTGAGE", "RENT", "OWN"]
 class Winsorizer(BaseEstimator, TransformerMixin):
     """Обрезает значения по перцентилям, посчитанным только на train."""
 
-    def __init__(self, low: float = 0.01, high: float = 0.99):
+    def __init__(self, low: float = 0.01, high: float = 0.99) -> None:
         self.low, self.high = low, high
 
-    def fit(self, X, y=None):
+    def fit(self, X: np.ndarray, y: pd.Series | None = None) -> "Winsorizer":
+        """Запоминает границы перцентилей по обучающим данным."""
         self.bounds_ = np.nanquantile(np.asarray(X, dtype=float), [self.low, self.high], axis=0)
         return self
 
-    def transform(self, X):
+    def transform(self, X: np.ndarray) -> np.ndarray:
+        """Обрезает значения по запомненным границам."""
         return np.clip(np.asarray(X, dtype=float), self.bounds_[0], self.bounds_[1])
 
 
 class CategoryCaster(BaseEstimator, TransformerMixin):
     """Фиксирует категории train и приводит к ним новые данные (для нативных категорий LightGBM)."""
 
-    def __init__(self, num_features: list | None = None, cat_features: list | None = None):
+    def __init__(self, num_features: list | None = None, cat_features: list | None = None) -> None:
         self.num_features, self.cat_features = num_features, cat_features
 
-    def fit(self, X, y=None):
+    def fit(self, X: pd.DataFrame, y: pd.Series | None = None) -> "CategoryCaster":
+        """Запоминает список категорий каждого признака по обучающим данным."""
         self.categories_ = {c: sorted(X[c].dropna().astype(str).unique()) for c in self.cat_features}
         return self
 
-    def transform(self, X):
+    def transform(self, X: pd.DataFrame) -> pd.DataFrame:
+        """Оставляет нужные колонки; категории, которых не было в train, становятся пропусками."""
         X = X[list(self.num_features) + list(self.cat_features)].copy()
         for col, cats in self.categories_.items():
             X[col] = pd.Categorical(X[col].astype("object"), categories=cats)
@@ -75,6 +80,11 @@ class CategoryCaster(BaseEstimator, TransformerMixin):
 
 
 def logreg_pipeline(num: list, cat: list, C_reg: float = 1.0) -> Pipeline:
+    """Логистическая регрессия с подготовкой данных внутри Pipeline.
+
+    Числа: пропуски -> медиана, обрезка выбросов, масштабирование. Категории: one-hot,
+    значения реже 50 раз объединяются. Подготовка обучается на тех же данных, что и модель.
+    """
     numeric = Pipeline([("impute", SimpleImputer(strategy="median")), ("clip", Winsorizer()),
                         ("scale", StandardScaler())])
     categorical = Pipeline([("impute", SimpleImputer(strategy="most_frequent")),
@@ -90,6 +100,7 @@ def grade_only_pipeline() -> Pipeline:
 
 
 def lgbm_pipeline(num: list, cat: list, **params) -> Pipeline:
+    """LightGBM сам работает с пропусками и категориями, поэтому подготовка — только список категорий."""
     model = LGBMClassifier(learning_rate=0.05, subsample=0.8, subsample_freq=1, colsample_bytree=0.8,
                            min_child_samples=200, random_state=C.RANDOM_STATE, verbose=-1, **params)
     return Pipeline([("cast", CategoryCaster(num, cat)), ("model", model)])
@@ -111,8 +122,11 @@ LGBM_GRID = {"model__num_leaves": [31, 63], "model__n_estimators": [300, 600]}
 
 
 def model_specs() -> list:
+    """Все сравниваемые модели: два baseline и по две модели на всех полях и только на полях заёмщика."""
     num, cat = C.NUM_FEATURES, C.CAT_FEATURES
     b_num, b_cat = C.BORROWER_NUM, C.BORROWER_CAT
+    # Третий аргумент — функция, которая создаёт новую необученную модель. lambda **p передаёт в неё
+    # гиперпараметры, например lgbm_pipeline(num, cat, num_leaves=31). Четвёртый — сетка для подбора.
     return [
         ModelSpec("Dummy (prior)", "dummy", lambda: DummyClassifier(strategy="prior"), baseline=True),
         ModelSpec("Grade only (LogReg)", "grade", grade_only_pipeline, baseline=True),
@@ -151,7 +165,8 @@ def tune(X: pd.DataFrame, y: pd.Series, n_splits: int = 3) -> dict:
     return best
 
 
-def build_model(spec: ModelSpec, best: dict):
+def build_model(spec: ModelSpec, best: dict) -> BaseEstimator:
+    """Создаёт необученную модель с гиперпараметрами из подбора (или стандартными, если подбора не было)."""
     params = best.get(spec.name, {}).get("params", {})
     return spec.build(**_plain_params(params))
 
@@ -164,6 +179,7 @@ def fit_platt(p: np.ndarray, y: pd.Series) -> tuple:
 
 
 def apply_platt(p: np.ndarray, a: float, b: float) -> np.ndarray:
+    """Применяет калибровку Платта с коэффициентами a и b к вероятностям p."""
     return expit(a * logit(np.clip(p, 1e-6, 1 - 1e-6)) + b)
 
 
@@ -174,6 +190,7 @@ def ks_stat(y: pd.Series, p: np.ndarray) -> float:
 
 
 def best_f1_threshold(y: pd.Series, p: np.ndarray) -> float:
+    """Порог вероятности от 0.05 до 0.60 с шагом 0.01, при котором F1 максимальна."""
     grid = np.linspace(0.05, 0.6, 56)
     return float(grid[np.argmax([f1_score(y, p >= t) for t in grid])])
 
@@ -188,6 +205,7 @@ def expected_calibration_error(y: pd.Series, p: np.ndarray, bins: int = 10) -> f
 
 
 def evaluate(y: pd.Series, p: np.ndarray, threshold: float) -> dict:
+    """Все метрики качества одной модели на test при заданном пороге."""
     pred = p >= threshold
     auc = roc_auc_score(y, p)
     return {"roc_auc": auc, "gini": 2 * auc - 1, "pr_auc": average_precision_score(y, p),
@@ -254,6 +272,7 @@ def select_model(metrics: pd.DataFrame, specs: list) -> dict:
 
 
 def save_metadata(windows: dict) -> None:
+    """Записывает, когда, на каких данных и какими версиями библиотек обучены модели."""
     train, test = windows["train"], windows["test"]
     save_json({"trained_at": datetime.now().isoformat(timespec="seconds"), "sample_mode": C.SAMPLE_MODE,
                "python": platform.python_version(), "sklearn": sklearn.__version__,
@@ -294,12 +313,13 @@ def save_feature_defaults(train: pd.DataFrame) -> None:
     save_json(defaults, C.MODELS / "feature_defaults.json")
 
 
-def models_dir():
+def models_dir() -> Path:
     """Обученные в этом запуске модели, а если их нет — поставляемые в репозитории."""
     return C.MODELS if (C.MODELS / "registry.json").exists() else C.SHIPPED_MODELS
 
 
 def load_model(name: str = "LightGBM") -> tuple:
+    """Загружает модель по названию и её запись из реестра: порог и коэффициенты калибровки."""
     folder = models_dir()
     registry = load_json(folder / "registry.json")
     if not registry:

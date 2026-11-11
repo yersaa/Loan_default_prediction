@@ -66,6 +66,7 @@ def plot_correlations(model_df: pd.DataFrame) -> None:
 
 
 def plot_dti_deciles() -> None:
+    """Дефолтность по десяти равным группам долговой нагрузки (данные из SQL-запроса dti_deciles)."""
     df = run_query("dti_deciles")
     fig, ax = plt.subplots(figsize=(8, 4.5))
     labels = [f"{a:.0f}–{b:.0f}" for a, b in zip(df["dti_from"], df["dti_to"], strict=True)]
@@ -99,6 +100,7 @@ def plot_monthly_rolling() -> None:
 
 
 def run_eda(df: pd.DataFrame, model_df: pd.DataFrame) -> list:
+    """Строит все графики EDA и возвращает список файлов в папке с графиками."""
     C.FIGURES.mkdir(parents=True, exist_ok=True)
     for step in [plot_default_by_grade, plot_vintage, plot_dti_deciles, plot_state_map, plot_monthly_rolling]:
         step()

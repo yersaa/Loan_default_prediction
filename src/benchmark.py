@@ -32,14 +32,17 @@ ORDER BY issue_year, g.grade
 
 
 def read_csv_gz() -> pd.DataFrame:
+    """Задача для замера: прочитать 6 колонок из исходного CSV.gz."""
     return pd.read_csv(C.RAW_CSV, usecols=CSV_COLS)
 
 
 def read_parquet() -> pd.DataFrame:
+    """Задача для замера: прочитать те же 6 колонок из Parquet."""
     return load_dataset(CSV_COLS)
 
 
 def pandas_aggregate() -> pd.DataFrame:
+    """Задача для замера: дефолтность по году и грейду средствами Pandas (данные из Parquet)."""
     df = load_dataset(["issue_d", "grade", "loan_status"])
     df["is_default"] = df["loan_status"].astype("object").map(C.STATUS_TO_TARGET)
     df = df[df["is_default"].notna()]
@@ -48,6 +51,7 @@ def pandas_aggregate() -> pd.DataFrame:
 
 
 def sql_aggregate() -> pd.DataFrame:
+    """Задача для замера: та же агрегация одним SQL-запросом к SQLite."""
     require_database()
     with connect() as conn:
         return pd.read_sql_query(AGG_SQL, conn)
@@ -120,6 +124,7 @@ def model_fit_memory(repeats: int = REPEATS) -> dict:
 
 
 def csv_vs_parquet() -> dict:
+    """Время, память и размер файла при чтении одних и тех же колонок из CSV.gz и из Parquet."""
     if not C.RAW_CSV.exists():
         raise FileNotFoundError(f"Нет файла {C.RAW_CSV}: сравнение CSV и Parquet требует исходный CSV.")
     csv_gz = {**run_task("read_csv_gz"), "file_mb": round(C.RAW_CSV.stat().st_size / 2**20, 1)}
@@ -128,6 +133,7 @@ def csv_vs_parquet() -> dict:
 
 
 def results_match(pandas_result: pd.DataFrame, sql_result: pd.DataFrame) -> bool:
+    """True, если Pandas и SQL дали одинаковые группы, число займов и дефолтность."""
     keys = ["issue_year", "grade"]
     merged = pandas_result.merge(sql_result, on=keys, how="outer", suffixes=("_pd", "_sql"), indicator=True)
     return bool((merged["_merge"] == "both").all()
@@ -136,12 +142,14 @@ def results_match(pandas_result: pd.DataFrame, sql_result: pd.DataFrame) -> bool
 
 
 def pandas_vs_sql() -> dict:
+    """Время и память одной агрегации в Pandas и в SQLite, плюс проверка, что результаты совпали."""
     return {"task": "дефолтность по году и грейду",
             "pandas_parquet": run_task("pandas_aggregate"), "sqlite": run_task("sql_aggregate"),
             "results_match": results_match(pandas_aggregate(), sql_aggregate())}
 
 
 def run_benchmarks() -> dict:
+    """Все сравнения пункта меню 8. Результат сохраняется в reports/benchmarks.json."""
     require_database()  # обе проверки — до долгих замеров CSV и памяти, а не после них
     if not (C.REPORTS / "tuning.json").exists():
         raise FileNotFoundError("Нет reports/tuning.json: память моделей замеряется после пункта меню 6.")

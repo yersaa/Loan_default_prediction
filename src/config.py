@@ -25,7 +25,11 @@ MEMORY_SAMPLE_ROWS = 200_000
 
 
 def activate_sample() -> None:
-    """Режим демонстрации: данные из выборки, результаты в sample_run/, опубликованные отчёты не трогаем."""
+    """Режим демонстрации: данные из выборки, результаты в sample_run/, опубликованные отчёты не трогаем.
+
+    Остальные модули читают пути как C.PARQUET, C.REPORTS и т. д. в момент использования,
+    поэтому достаточно один раз заменить их здесь (для этого нужен global).
+    """
     global PARQUET, DB_PATH, REPORTS, FIGURES, MODELS, STATE_FILE, SAMPLE_MODE
     SAMPLE_MODE = True
     PARQUET = SAMPLE_PARQUET

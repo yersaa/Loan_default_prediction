@@ -20,11 +20,13 @@ def mb(df: pd.DataFrame) -> float:
 
 
 def save_json(obj: Any, path: Path) -> None:
+    """Сохраняет словарь или список в JSON (UTF-8); папка создаётся при необходимости."""
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(obj, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
 
 
 def load_json(path: Path, default: Any = None) -> Any:
+    """Читает JSON; если файла нет или он повреждён, возвращает default."""
     try:
         return json.loads(path.read_text(encoding="utf-8"))
     except (FileNotFoundError, json.JSONDecodeError):

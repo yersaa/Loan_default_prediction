@@ -14,12 +14,14 @@ MODELS = ["Logistic Regression", "LightGBM"]
 
 
 def term_auc(test: pd.DataFrame, p, term: int) -> float | None:
+    """ROC-AUC только по займам с заданным сроком; None, если таких займов нет или в них один класс."""
     mask = (test["term_months"] == term).to_numpy()
     y = test.loc[mask, C.TARGET]
     return round(float(roc_auc_score(y, p[mask])), 4) if y.nunique() > 1 else None
 
 
 def cohort_rows(frame: pd.DataFrame, cohort: str, best: dict) -> list:
+    """Обучает модели на train когорты и возвращает по строке метрик на её test для каждой модели."""
     windows = temporal_split(frame)
     train, test = windows["train"], windows["test"]
     specs = {s.name: s for s in model_specs()}

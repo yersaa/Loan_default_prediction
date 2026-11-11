@@ -26,6 +26,7 @@ def measure(interval: float = 0.02) -> Iterator[Measurement]:
     stop = threading.Event()
 
     def sample() -> None:
+        """Фоновый поток: каждые interval секунд запоминает наибольшую занятую память."""
         nonlocal peak
         while not stop.wait(interval):
             peak = max(peak, process.memory_info().rss)

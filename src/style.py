@@ -27,6 +27,7 @@ plt.rcParams.update({
 
 
 def save(fig: plt.Figure, name: str) -> None:
+    """Сохраняет график в папку отчётов и закрывает его, чтобы не копить память."""
     C.FIGURES.mkdir(parents=True, exist_ok=True)
     fig.tight_layout()
     fig.savefig(C.FIGURES / name, dpi=150)

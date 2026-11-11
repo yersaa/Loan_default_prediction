@@ -39,6 +39,7 @@ def plot_curves(y: pd.Series, preds: dict) -> None:
 
 
 def plot_confusion(y: pd.Series, p: np.ndarray, threshold: float, name: str = PRIMARY) -> None:
+    """Матрица ошибок на test при заданном пороге: сколько дефолтов поймано и сколько пропущено."""
     fig, ax = plt.subplots(figsize=(5, 4.5))
     ConfusionMatrixDisplay.from_predictions(y, p >= threshold, display_labels=["погашен", "дефолт"],
                                             values_format=",", cmap="Blues", ax=ax, colorbar=False)
@@ -124,6 +125,7 @@ def approval_table(test: pd.DataFrame, preds: dict, rates: tuple | None = None) 
 
 
 def plot_approval(table: pd.DataFrame) -> None:
+    """Два графика по таблице одобрения: дефолтность и доходность портфеля при разной доле одобрения."""
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(11, 4.4))
     for name, part in table.groupby("model", sort=False):
         color = MODEL_COLORS[name]
@@ -152,6 +154,7 @@ def grade_recovery(test: pd.DataFrame, preds: dict) -> pd.DataFrame:
 
 
 def run_explain(fitted: dict, preds: dict, preds_raw: dict, test: pd.DataFrame, metrics: pd.DataFrame) -> dict:
+    """Строит все графики и таблицы интерпретации по результатам обучения и сохраняет их в reports/."""
     y = test[C.TARGET].astype(int)
     thr = float(metrics.set_index("model").loc[PRIMARY, "threshold"])
     plot_curves(y, preds)

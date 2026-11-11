@@ -1,5 +1,7 @@
 """Мини-дашборд Streamlit: аналитика по займам + скоринг заявки.
 Запуск: streamlit run app.py"""
+from pathlib import Path
+
 import pandas as pd
 import plotly.express as px
 import streamlit as st
@@ -14,13 +16,14 @@ st.set_page_config(page_title="LendingClub PD", layout="wide")
 FULL_DATA_HINT = "Демо-выборка: доли и дефолтность не отражают полный набор. Полные данные: пункт меню 1."
 
 
-def dataset_path():
+def dataset_path() -> Path:
     """Полный Parquet, если он есть; иначе демо-выборка из репозитория."""
     return C.PARQUET if C.PARQUET.exists() else C.SAMPLE_PARQUET
 
 
 @st.cache_data
 def get_loans() -> pd.DataFrame:
+    """Созревшие завершённые займы для вкладки «Аналитика». Результат кэшируется: файл читается один раз."""
     cols = ["issue_d", "grade", "purpose", "addr_state", "term", "loan_amnt", "int_rate", "loan_status"]
     df = add_target(load_dataset(cols, path=dataset_path()))
     df = df[df[C.TARGET].notna() & is_matured(df["issue_d"], term_to_months(df["term"]))].copy()
@@ -29,6 +32,7 @@ def get_loans() -> pd.DataFrame:
 
 
 def sidebar_filters(df: pd.DataFrame) -> pd.DataFrame:
+    """Рисует фильтры в боковой панели и возвращает займы, которые под них подходят."""
     st.sidebar.header("Фильтры")
     years = st.sidebar.slider("Год выдачи", int(df.year.min()), int(df.year.max()), (2012, 2015))
     grades = st.sidebar.multiselect("Грейд", list("ABCDEFG"), default=list("ABCDEFG"))
@@ -42,6 +46,7 @@ def sidebar_filters(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def analytics_tab(df: pd.DataFrame) -> None:
+    """Вкладка «Аналитика»: четыре показателя и графики дефолтности по грейду, году и штату."""
     st.caption("Только созревшие займы: срок истёк к декабрю 2018 г., поэтому дефолтность не смещена.")
     if df.empty:
         st.warning("Нет данных под выбранные фильтры.")
@@ -70,6 +75,7 @@ def analytics_tab(df: pd.DataFrame) -> None:
 
 
 def scoring_tab() -> None:
+    """Вкладка «Скоринг заявки»: форма анкеты и вероятность дефолта от каждой модели."""
     from src.models import APPLICATION_LIMITS as L
     from src.models import HOME_OPTIONS, SUB_GRADES, predict_pd
     with st.form("application"):
@@ -109,6 +115,7 @@ def scoring_tab() -> None:
 
 
 def models_tab() -> None:
+    """Вкладка «Модели»: таблицы и графики, сохранённые при обучении (пункт меню 6)."""
     path = C.REPORTS / "model_metrics.csv"
     if not path.exists():
         st.info("Модели ещё не обучены (пункт меню 6).")
@@ -132,6 +139,7 @@ def models_tab() -> None:
 
 
 def main() -> None:
+    """Собирает страницу: загружает данные и показывает три вкладки."""
     st.title("LendingClub: анализ и прогноз дефолта")
     if not C.PARQUET.exists():
         st.info(FULL_DATA_HINT)

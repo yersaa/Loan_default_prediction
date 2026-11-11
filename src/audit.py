@@ -45,6 +45,7 @@ def raw_column_audit(n_rows: int | None = None) -> dict | None:
 
 
 def plot_missing(missing: pd.Series) -> None:
+    """Горизонтальная диаграмма: доля пропусков по колонкам, где они есть."""
     top = missing[missing > 0].sort_values()
     fig, ax = plt.subplots(figsize=(8, 3.6))
     ax.barh(top.index, top.values, color=BLUE, height=0.7)
@@ -55,6 +56,7 @@ def plot_missing(missing: pd.Series) -> None:
 
 
 def run_audit(df: pd.DataFrame) -> dict:
+    """Собирает все проверки качества в один словарь и сохраняет его в reports/audit.json."""
     C.FIGURES.mkdir(parents=True, exist_ok=True)
     missing = (df.isna().mean() * 100).round(2)
     plot_missing(missing)
@@ -76,6 +78,7 @@ def run_audit(df: pd.DataFrame) -> dict:
 
 
 def print_audit(report: dict) -> None:
+    """Печатает краткую сводку аудита в консоль."""
     print(f"Строк: {report['rows_after_removing_summary_lines']:,} "
           f"(удалено служебных строк: {report['summary_lines_removed']})")
     print(f"Дубликатов id: {report['duplicate_ids']}")
