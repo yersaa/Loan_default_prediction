@@ -157,8 +157,10 @@ def test_train_and_compare_produces_full_comparison(trained):
     table = metrics.set_index("model")
     assert table.loc["Dummy (prior)", "roc_auc"] == pytest.approx(0.5)
     assert table.loc["LightGBM", "roc_auc"] > 0.55
-    for col in ("fit_seconds", "fit_peak_mb", "model_mb", "valid_auc", "ece", "ece_raw"):
+    for col in ("fit_seconds", "model_mb", "valid_auc", "probe_test_auc", "ece", "ece_raw", "mean_pd"):
         assert col in metrics
+    assert "fit_peak_mb" not in metrics  # память моделей замеряется в отдельных процессах, см. benchmark.py
+    assert table.loc["LightGBM", "actual_default_rate"] == pytest.approx(test[C.TARGET].mean(), abs=1e-4)
     assert (C.REPORTS / "model_metrics.csv").exists()
 
 
@@ -206,8 +208,8 @@ def test_selection_file_written(trained):
 @pytest.mark.integration
 def test_tune_uses_time_series_folds(loans):
     frame = modeling_frame(loans.copy())
-    train = temporal_split(frame)["train"]
-    best = tune(train[C.FEATURES], train[C.TARGET].astype(int), n_splits=2)
+    fit = temporal_split(frame)["fit"]  # 2014 год в подборе не участвует: по нему выбирается модель
+    best = tune(fit[C.FEATURES], fit[C.TARGET].astype(int), n_splits=2)
     assert {"Logistic Regression", "LightGBM", "LightGBM (borrower only)"} <= set(best)
     assert 0 <= best["LightGBM"]["cv_auc"] <= 1
 

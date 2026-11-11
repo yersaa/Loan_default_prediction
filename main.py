@@ -79,9 +79,10 @@ def step_models() -> None:
     df = load_dataset()
     model_df = modeling_frame(df.copy())
     windows = temporal_split(model_df)
-    train = windows["train"]
-    print(f"Созревшие займы. Train: {len(train):,}  Test: {len(windows['test']):,}")
-    best = tune(train[C.FEATURES], train[C.TARGET].astype(int))
+    fit = windows["fit"]
+    print(f"Созревшие займы. Train: {len(windows['train']):,}  Test: {len(windows['test']):,}")
+    # Гиперпараметры подбираются на 2007–2013: 2014 год не участвует, по нему потом выбирается модель
+    best = tune(fit[C.FEATURES], fit[C.TARGET].astype(int))
     save_json(best, C.REPORTS / "tuning.json")
     metrics, fitted, preds, preds_raw, test = train_and_compare(model_df, best)
     print(metrics[["model", "valid_auc", "roc_auc", "gini", "ks", "pr_auc", "brier", "f1"]].to_string(index=False))

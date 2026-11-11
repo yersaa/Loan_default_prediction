@@ -1,6 +1,6 @@
 """Модели PD: baseline (Dummy, только грейд) vs LogReg и LightGBM, на всех полях и только на полях заёмщика.
 
-Подбор гиперпараметров — TimeSeriesSplit на train. Порог и калибровка — на 2014 годе (модель обучена на 2007–2013).
+Подбор гиперпараметров — TimeSeriesSplit на 2007–2013. Порог и калибровка — на 2014 годе (модель обучена на 2007–2013).
 Оценка — на созревших займах 2015 года, которые не участвуют ни в одном из этих шагов.
 """
 import platform
@@ -197,15 +197,25 @@ def evaluate(y: pd.Series, p: np.ndarray, threshold: float) -> dict:
 
 
 def fit_one(spec: ModelSpec, best: dict, windows: dict) -> dict:
-    """Шаг 1: модель на fit -> калибровка и порог на valid. Шаг 2: модель на train -> прогноз на test."""
+    """Обучает одну модель и считает её метрики.
+
+    Шаг 1. Пробная модель на fit (2007–2013) делает прогноз на valid (2014): по нему подбираются
+           калибровка Платта и порог, и считается valid_auc для выбора модели.
+    Шаг 2. Финальная модель обучается на train (2007–2014) и оценивается на test (2015).
+           Калибровка и порог берутся из шага 1: test в их подборе не участвует.
+
+    probe_test_auc — пробная модель на test. Она объясняет, почему AUC на test выше, чем на valid:
+    разница valid_auc -> probe_test_auc — это другой год, probe_test_auc -> roc_auc — добавленный в обучение 2014 год.
+    """
     fit, valid, train, test = windows["fit"], windows["valid"], windows["train"], windows["test"]
-    y_valid = valid[C.TARGET].astype(int)
+    y_valid, y_test = valid[C.TARGET].astype(int), test[C.TARGET].astype(int)
 
     probe = build_model(spec, best).fit(fit[C.FEATURES], fit[C.TARGET].astype(int))
     p_valid = probe.predict_proba(valid[C.FEATURES])[:, 1]
     a, b = (1.0, 0.0) if spec.slug == "dummy" else fit_platt(p_valid, y_valid)
     threshold = best_f1_threshold(y_valid, apply_platt(p_valid, a, b))
     valid_auc = roc_auc_score(y_valid, p_valid)
+    probe_test_auc = roc_auc_score(y_test, probe.predict_proba(test[C.FEATURES])[:, 1])
 
     model = build_model(spec, best)
     with measure() as fit_cost:
@@ -216,10 +226,13 @@ def fit_one(spec: ModelSpec, best: dict, windows: dict) -> dict:
 
     path = C.MODELS / f"{spec.slug}.joblib"
     joblib.dump(model, path)
-    y_test = test[C.TARGET].astype(int)
-    row = {"model": spec.name, "valid_auc": valid_auc, **evaluate(y_test, p, threshold),
+    # Память обучения здесь не измеряется: модели идут подряд в одном процессе и влияют друг на друга.
+    # Она замеряется в отдельных процессах в src/benchmark.py (пункт меню 8).
+    row = {"model": spec.name, "valid_auc": valid_auc, "probe_test_auc": probe_test_auc,
+           **evaluate(y_test, p, threshold),
            "brier_raw": brier_score_loss(y_test, p_raw), "ece_raw": expected_calibration_error(y_test, p_raw),
-           "fit_seconds": fit_cost.seconds, "fit_peak_mb": fit_cost.peak_mb,
+           "mean_pd": float(p.mean()), "actual_default_rate": float(y_test.mean()),
+           "fit_seconds": fit_cost.seconds,
            "predict_ms_per_1000": 1e6 * predict_cost.seconds / len(test), "model_mb": path.stat().st_size / 2**20}
     return {"row": row, "model": model, "p": p, "p_raw": p_raw,
             "registry": {"file": path.name, "threshold": threshold, "platt_a": a, "platt_b": b}}
