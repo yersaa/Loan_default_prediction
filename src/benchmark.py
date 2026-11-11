@@ -12,7 +12,7 @@ import pandas as pd
 
 from src import config as C
 from src.data_io import load_dataset, mb, memory_report, save_json
-from src.database import connect
+from src.database import connect, require_database
 from src.profiling import measure
 
 CSV_COLS = ["issue_d", "grade", "loan_amnt", "int_rate", "annual_inc", "loan_status"]
@@ -47,6 +47,7 @@ def pandas_aggregate() -> pd.DataFrame:
 
 
 def sql_aggregate() -> pd.DataFrame:
+    require_database()
     with connect() as conn:
         return pd.read_sql_query(AGG_SQL, conn)
 
@@ -97,6 +98,7 @@ def pandas_vs_sql() -> dict:
 
 
 def run_benchmarks() -> dict:
+    require_database()  # проверка до долгих замеров CSV и памяти, а не после них
     report = {"method": f"отдельный процесс на замер, медиана {REPEATS} запусков, прирост RSS",
               "memory": memory_report(), "csv_vs_parquet": csv_vs_parquet(), "pandas_vs_sql": pandas_vs_sql()}
     save_json(report, C.REPORTS / "benchmarks.json")

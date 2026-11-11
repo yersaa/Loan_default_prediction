@@ -95,3 +95,23 @@ def test_rolling_window_uses_three_months(db):
 def test_run_query_without_database(tmp_project):
     with pytest.raises(FileNotFoundError, match="пункт меню 3"):
         run_query("default_by_grade")
+    assert not C.DB_PATH.exists()
+
+
+def test_empty_database_file_counts_as_missing(tmp_project):
+    C.DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    C.DB_PATH.touch()
+    with pytest.raises(FileNotFoundError, match="пункт меню 3"):
+        run_query("default_by_grade")
+
+
+def test_interrupted_build_keeps_previous_database(db, loans, monkeypatch):
+    before = C.DB_PATH.read_bytes()
+
+    def stop(*_args, **_kwargs):
+        raise KeyboardInterrupt
+    monkeypatch.setattr(pd.DataFrame, "to_sql", stop)
+    with pytest.raises(KeyboardInterrupt):
+        build_database(loans.copy())
+    assert C.DB_PATH.read_bytes() == before
+    assert not list(C.DB_PATH.parent.glob("*.tmp"))

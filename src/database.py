@@ -78,16 +78,32 @@ def split_tables(df: pd.DataFrame) -> dict:
             "loans": loans, "borrowers": borrowers, "outcomes": outcomes}
 
 
+def require_database() -> None:
+    """connect() создаёт файл при первом обращении, поэтому наличие базы проверяется до соединения."""
+    if not C.DB_PATH.exists() or C.DB_PATH.stat().st_size == 0:
+        raise FileNotFoundError("База не создана. Сначала выполните пункт меню 3.")
+
+
 def build_database(df: pd.DataFrame) -> dict:
-    """Создаёт схему из sql/schema.sql и загружает таблицы чанками."""
+    """Создаёт схему из sql/schema.sql и загружает таблицы чанками.
+
+    База собирается во временном файле: прерванная загрузка не оставляет частичные таблицы.
+    """
     start = time.time()
     tables = split_tables(df)
-    with connect() as conn:
-        conn.executescript((C.SQL_DIR / "schema.sql").read_text(encoding="utf-8"))
-        conn.execute("PRAGMA synchronous = OFF")
-        for name, table in tables.items():
-            table.to_sql(name, conn, if_exists="append", index=False, chunksize=100_000)
-            print(f"  {name:<12}{len(table):>12,} строк")
+    C.DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    tmp = C.DB_PATH.with_name(C.DB_PATH.name + ".tmp")
+    tmp.unlink(missing_ok=True)
+    try:
+        with connect(tmp) as conn:
+            conn.executescript((C.SQL_DIR / "schema.sql").read_text(encoding="utf-8"))
+            conn.execute("PRAGMA synchronous = OFF")
+            for name, table in tables.items():
+                table.to_sql(name, conn, if_exists="append", index=False, chunksize=100_000)
+                print(f"  {name:<12}{len(table):>12,} строк")
+        tmp.replace(C.DB_PATH)
+    finally:
+        tmp.unlink(missing_ok=True)
     stats = {name: len(t) for name, t in tables.items()}
     stats["seconds"] = round(time.time() - start, 1)
     stats["db_mb"] = round(C.DB_PATH.stat().st_size / 2**20, 1)
@@ -103,8 +119,7 @@ def load_queries(path: Path | None = None) -> dict:
 
 def run_query(name: str, queries: dict | None = None) -> pd.DataFrame:
     """Выполняет запрос по имени и возвращает результат в Pandas."""
-    if not C.DB_PATH.exists():
-        raise FileNotFoundError("База не создана. Сначала выполните пункт меню 3.")
+    require_database()
     queries = queries or load_queries()
     with connect() as conn:
         return pd.read_sql_query(queries[name], conn)
