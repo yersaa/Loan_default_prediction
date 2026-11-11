@@ -5,7 +5,7 @@ import pytest
 
 from src import config as C
 from src.audit import invalid_values, iqr_outliers, plot_missing, print_audit, run_audit
-from src.benchmark import pandas_aggregate, results_match, sql_aggregate
+from src.benchmark import fit_memory, pandas_aggregate, results_match, run_benchmarks, sql_aggregate
 from src.database import build_database, run_all_queries
 from src.eda import run_eda
 from src.explain import approval_table, error_analysis, grade_recovery, missed_defaults_profile, run_explain
@@ -107,6 +107,22 @@ def test_eda_and_explain_create_all_artifacts(tmp_project, loans, fast_best):
     gbm = approval[approval["model"] == "LightGBM"].sort_values("approval_rate")
     assert gbm["default_rate_pct"].iloc[0] <= gbm["default_rate_pct"].iloc[-1]
     assert not grade_recovery(test, preds).empty
+
+
+@pytest.mark.integration
+def test_fit_memory_measures_one_model(tmp_project, loans):
+    C.PARQUET.parent.mkdir(parents=True, exist_ok=True)
+    loans.to_parquet(C.PARQUET, index=False)
+    assert fit_memory("logistic") >= 0
+    with pytest.raises(StopIteration):
+        fit_memory("no_such_model")
+
+
+@pytest.mark.integration
+def test_benchmarks_need_tuned_models_before_measuring(tmp_project, loans):
+    build_database(loans.copy())
+    with pytest.raises(FileNotFoundError, match="пункта меню 6"):
+        run_benchmarks()
 
 
 @pytest.mark.integration

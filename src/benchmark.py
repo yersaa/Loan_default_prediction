@@ -1,17 +1,18 @@
-"""Сравнение способов обработки данных: CSV vs Parquet, Pandas vs SQL (время и память).
+"""Сравнение способов обработки данных: CSV vs Parquet, Pandas vs SQL, а также память обучения моделей.
 
 Каждый замер идёт в отдельном новом процессе и повторяется несколько раз; в отчёт попадает медиана.
 Так задачи не влияют друг на друга через кэши и уже занятую процессом память.
 """
 import multiprocessing as mp
 import statistics
+from collections.abc import Callable
 from concurrent.futures import ProcessPoolExecutor
 
 import numpy as np
 import pandas as pd
 
 from src import config as C
-from src.data_io import load_dataset, mb, memory_report, save_json
+from src.data_io import load_dataset, load_json, mb, memory_report, save_json
 from src.database import connect, require_database
 from src.profiling import measure
 
@@ -65,14 +66,57 @@ def _isolated_task(name: str, sample_mode: bool) -> tuple:
     return m.seconds, m.peak_mb, mb(result)
 
 
-def run_task(name: str, repeats: int = REPEATS) -> dict:
+def run_isolated(func: Callable, arg: str, repeats: int = REPEATS) -> list:
+    """Запускает func(arg, sample_mode) в новом процессе repeats раз и возвращает результаты всех запусков."""
     runs = []
     for _ in range(repeats):
         with ProcessPoolExecutor(max_workers=1, mp_context=mp.get_context("spawn")) as pool:
-            runs.append(pool.submit(_isolated_task, name, C.SAMPLE_MODE).result())
-    seconds, peaks, sizes = zip(*runs, strict=True)
+            runs.append(pool.submit(func, arg, C.SAMPLE_MODE).result())
+    return runs
+
+
+def run_task(name: str, repeats: int = REPEATS) -> dict:
+    """Медиана времени и памяти одной задачи из TASKS."""
+    seconds, peaks, sizes = zip(*run_isolated(_isolated_task, name, repeats), strict=True)
     return {"seconds": round(statistics.median(seconds), 2), "peak_mb": round(statistics.median(peaks), 1),
             "df_mb": sizes[0], "runs_seconds": [round(s, 2) for s in seconds]}
+
+
+def fit_memory(slug: str) -> float:
+    """Прирост пиковой памяти процесса (МБ) за время обучения одной модели на train.
+
+    Загрузка данных и подготовка признаков идут до замера: измеряется только model.fit.
+    """
+    from src.features import modeling_frame, temporal_split  # тяжёлые импорты нужны только этой задаче
+    from src.models import build_model, model_specs
+
+    spec = next(s for s in model_specs() if s.slug == slug)
+    best = load_json(C.REPORTS / "tuning.json", default={})
+    train = temporal_split(modeling_frame(load_dataset()))["train"]
+    model = build_model(spec, best)
+    with measure() as m:
+        model.fit(train[C.FEATURES], train[C.TARGET].astype(int))
+    return m.peak_mb
+
+
+def _isolated_fit(slug: str, sample_mode: bool) -> float:
+    """Выполняется в новом процессе, чтобы модели не влияли на замеры друг друга."""
+    if sample_mode:
+        C.activate_sample()
+    return fit_memory(slug)
+
+
+def model_fit_memory(repeats: int = REPEATS) -> dict:
+    """Память обучения каждой модели: {название модели: медиана и все запуски, МБ}."""
+    from src.models import model_specs
+
+    report = {}
+    for spec in model_specs():
+        peaks = run_isolated(_isolated_fit, spec.slug, repeats)
+        report[spec.name] = {"fit_peak_mb": round(statistics.median(peaks), 1),
+                             "runs_mb": [round(p, 1) for p in peaks]}
+        print(f"  {spec.name:<36} память обучения {report[spec.name]['fit_peak_mb']:>7.1f} МБ")
+    return report
 
 
 def csv_vs_parquet() -> dict:
@@ -98,8 +142,11 @@ def pandas_vs_sql() -> dict:
 
 
 def run_benchmarks() -> dict:
-    require_database()  # проверка до долгих замеров CSV и памяти, а не после них
+    require_database()  # обе проверки — до долгих замеров CSV и памяти, а не после них
+    if not (C.REPORTS / "tuning.json").exists():
+        raise FileNotFoundError("Нет reports/tuning.json: память моделей замеряется после пункта меню 6.")
     report = {"method": f"отдельный процесс на замер, медиана {REPEATS} запусков, прирост RSS",
-              "memory": memory_report(), "csv_vs_parquet": csv_vs_parquet(), "pandas_vs_sql": pandas_vs_sql()}
+              "memory": memory_report(), "csv_vs_parquet": csv_vs_parquet(), "pandas_vs_sql": pandas_vs_sql(),
+              "model_fit_memory": model_fit_memory()}
     save_json(report, C.REPORTS / "benchmarks.json")
     return report
