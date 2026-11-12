@@ -23,24 +23,24 @@
       "loan_status"
     ],
     "csv_gz": {
-      "seconds": 9.4,
+      "seconds": 9.75,
       "peak_mb": 161.7,
       "df_mb": 142.6,
       "runs_seconds": [
-        10.04,
-        9.4,
-        9.38
+        9.7,
+        10.17,
+        9.75
       ],
       "file_mb": 374.4
     },
     "parquet": {
-      "seconds": 0.21,
-      "peak_mb": 227.0,
+      "seconds": 0.23,
+      "peak_mb": 244.0,
       "df_mb": 47.4,
       "runs_seconds": [
-        0.23,
-        0.21,
-        0.21
+        0.28,
+        0.22,
+        0.23
       ],
       "file_mb": 76.0
     }
@@ -48,25 +48,75 @@
   "pandas_vs_sql": {
     "task": "дефолтность по году и грейду",
     "pandas_parquet": {
-      "seconds": 0.81,
-      "peak_mb": 387.4,
+      "seconds": 0.88,
+      "peak_mb": 378.3,
       "df_mb": 0.0,
       "runs_seconds": [
-        0.84,
-        0.81,
-        0.8
+        0.9,
+        0.88,
+        0.85
       ]
     },
     "sqlite": {
-      "seconds": 2.6,
+      "seconds": 2.68,
       "peak_mb": 5.4,
       "df_mb": 0.0,
       "runs_seconds": [
-        2.6,
-        2.59,
-        2.6
+        7.25,
+        2.68,
+        2.59
       ]
     },
     "results_match": true
+  },
+  "model_fit_memory": {
+    "Dummy (prior)": {
+      "fit_peak_mb": 8.1,
+      "runs_mb": [
+        8.1,
+        10.2,
+        4.6
+      ]
+    },
+    "Grade only (LogReg)": {
+      "fit_peak_mb": 40.5,
+      "runs_mb": [
+        41.2,
+        36.6,
+        40.5
+      ]
+    },
+    "Logistic Regression": {
+      "fit_peak_mb": 400.9,
+      "runs_mb": [
+        404.9,
+        400.2,
+        400.9
+      ]
+    },
+    "LightGBM": {
+      "fit_peak_mb": 154.9,
+      "runs_mb": [
+        152.7,
+        154.9,
+        157.8
+      ]
+    },
+    "Logistic Regression (borrower only)": {
+      "fit_peak_mb": 299.9,
+      "runs_mb": [
+        299.9,
+        299.4,
+        300.1
+      ]
+    },
+    "LightGBM (borrower only)": {
+      "fit_peak_mb": 122.6,
+      "runs_mb": [
+        120.0,
+        126.3,
+        122.6
+      ]
+    }
   }
 }
