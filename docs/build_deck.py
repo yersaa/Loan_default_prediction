@@ -15,7 +15,7 @@ from pptx.enum.text import MSO_ANCHOR, PP_ALIGN
 from pptx.opc.constants import RELATIONSHIP_TYPE as RT
 from pptx.oxml.ns import qn
 from pptx.util import Emu, Inches, Pt
-from results import AUTHOR, BRAND, COURSE, GROUP, ROOT, TITLE, Results, load, ru, thousands
+from results import AUTHOR, BRAND, COURSE, COVERAGE_PCT, GROUP, ROOT, TEST_COUNT, TITLE, Results, load, ru, thousands
 
 OUTPUT = ROOT / "docs" / "presentation.pptx"
 NUMERIC = re.compile(r"[\d\s ,.%—-]+")
@@ -444,7 +444,7 @@ def s08_method(d: Deck) -> None:
         d.text(s, left + Inches(0.25), Inches(2.3), w - Inches(0.5), Inches(0.7), [role], size=16, tint=ink)
     d.text(s, MARGIN, Inches(3.2), SLIDE_W - 2 * MARGIN, Inches(0.4),
            [f"Финальная модель обучена на 2007–2014: {thousands(r.metadata['train_rows'])} займов. "
-            "Подбор гиперпараметров: TimeSeriesSplit внутри этого окна."], size=16, tint="muted")
+            "Гиперпараметры подбираются на 2007–2013 (TimeSeriesSplit), без 2014 года."], size=16, tint="muted")
     half = (SLIDE_W - 2 * MARGIN - Inches(0.4)) // 2
     for i, (head, items) in enumerate([
         ("Без утечки", ["только поля, известные до выдачи", "total_pymnt только для оценки портфеля",
@@ -559,7 +559,8 @@ def s12_close(d: Deck) -> None:
     s.notes_slide.notes_text_frame.text = (
         "Итоги. Проверка метода дала больше, чем усложнение модели. Ограничения называю сам: тест только на 36 месяцев, "
         "обучающие метки 2013–2014 годов на начало 2015 ещё не были полностью известны, нет отклонённых заявок. Проект "
-        "запускается из README, демо-выборка работает без загрузки данных, 98 тестов, покрытие 93%. Использовал ИИ-ассистента "
+        f"запускается из README, демо-выборка работает без загрузки данных, {TEST_COUNT} тестов, покрытие {COVERAGE_PCT}%. "
+        "Использовал ИИ-ассистента "
         "Claude Code, это указано в отчёте. Покажу дашборд и готов ответить на вопросы.")
     half = (SLIDE_W - 2 * MARGIN - Inches(0.4)) // 2
     d.text(s, MARGIN, Inches(1.5), half, Inches(0.5), ["Выводы"], size=22, tint="amber", bold=True)
@@ -578,7 +579,7 @@ def s12_close(d: Deck) -> None:
         "Риск недооценивается и после калибровки: нужен регулярный пересчёт.",
     ], size=18, tint="white")
     d.text(s, MARGIN, Inches(6.45), Inches(11.2), Inches(0.5),
-           ["98 тестов, покрытие 93%. Запуск без загрузки данных описан в README. При подготовке использован ИИ-ассистент "
+           [f"{TEST_COUNT} тестов, покрытие {COVERAGE_PCT}%. Запуск без загрузки данных описан в README. При подготовке использован ИИ-ассистент "
             "Claude Code, см. отчёт."], size=13, tint="mint")
 
 

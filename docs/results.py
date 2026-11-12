@@ -14,6 +14,9 @@ GROUP = "AAI-2602M"
 COURSE = "Programming for Data Analysis and Database"
 TITLE = "Прогноз дефолта по займам LendingClub"
 
+# Единственные числа, которые вписываются вручную: обновите после `pytest --cov=src --cov=main --cov=app`
+TEST_COUNT, COVERAGE_PCT = 108, 93
+
 BRAND = {"pine": "14342B", "green": "2E7D5B", "mint": "DCEAE3", "tint": "F1F6F3", "amber": "D9901A",
          "rust": "B9472E", "ink": "1C2421", "muted": "5B6B65", "line": "C9D6D0", "white": "FFFFFF"}
 
@@ -61,6 +64,10 @@ class Results:
 
     def m(self, model: str, column: str) -> float:
         return float(self.metrics.set_index("model").loc[model, column])
+
+    def fit_mb(self, model: str) -> float:
+        """Память обучения модели, замеренная в отдельном процессе (пункт меню 8)."""
+        return float(self.benchmarks["model_fit_memory"][model]["fit_peak_mb"])
 
     def censored(self, cohort_prefix: str, model: str, column: str) -> float:
         rows = self.censoring[self.censoring["cohort"].str.startswith(cohort_prefix)]
