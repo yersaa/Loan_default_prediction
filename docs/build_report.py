@@ -555,7 +555,7 @@ def closing_sections(rep: Report, r: Results) -> None:
         ["3–4. Условия и циклы", "menu_loop (if/elif/else, while), ask_number, csv_to_parquet (for)"],
         ["5. Работа с файлами", "CSV, Parquet, JSON, SQLite, joblib"],
         ["6. Обработка ошибок", "run_step, load_dataset, load_json, predict_pd"],
-        ["7. Интерфейс", "консольное меню main.py и дашборд Streamlit app.py"],
+        ["7. Интерфейс", "консольное меню main.py, дашборд Streamlit app.py; ноутбук project_walkthrough.ipynb"],
         ["8. Модульность", "12 модулей в src/, main.py и app.py; pathlib, json, datetime, argparse, sqlite3"],
         ["9. Обоснование подхода", "разделы 5 и 6 этого отчёта"],
         ["10. База данных и SQL", "sql/schema.sql, ER-диаграмма, 10 запросов, результаты в Pandas"],

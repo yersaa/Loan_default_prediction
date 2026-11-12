@@ -42,6 +42,18 @@ def test_readme_cohort_sizes_match_metadata():
     assert f"{meta['test_rows']:,}".replace(",", " ") in README
 
 
+def test_notebook_is_executed_without_errors():
+    """Ноутбук в репозитории сохранён с результатами: каждая ячейка кода выполнена и ни одна не упала."""
+    import nbformat
+
+    notebook = nbformat.read(ROOT / "project_walkthrough.ipynb", as_version=4)
+    code_cells = [cell for cell in notebook.cells if cell.cell_type == "code"]
+    assert len(code_cells) >= 25
+    for cell in code_cells:
+        assert cell.execution_count is not None, cell.source[:60]
+        assert all(output.output_type != "error" for output in cell.outputs), cell.source[:60]
+
+
 def test_er_diagram_parser_reads_every_table():
     sys.path.insert(0, str(ROOT / "docs"))
     from build_er import LAYOUT, RELATIONS, parse_schema
