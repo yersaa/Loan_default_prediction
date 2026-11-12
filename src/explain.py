@@ -87,7 +87,7 @@ def error_analysis(test: pd.DataFrame, p: np.ndarray, threshold: float) -> pd.Da
     rows = []
     for grade, g in df.groupby("grade", observed=True):
         y = g[C.TARGET]
-        rows.append({"grade": grade, "loans": len(g), "actual_default_pct": 100 * y.mean(),
+        rows.append({"grade": grade, "loans": len(g), "actual_default_pct": 100 * float(y.mean()),
                      "predicted_pd_pct": 100 * g["pd_hat"].mean(),
                      "auc_within_grade": roc_auc_score(y, g["pd_hat"]) if y.nunique() > 1 else np.nan,
                      "missed_defaults_pct": 100 * ((~g["pred"]) & (y == 1)).sum() / max(y.sum(), 1),
@@ -146,7 +146,7 @@ def grade_recovery(test: pd.DataFrame, preds: dict) -> pd.DataFrame:
     rows = []
     for grade, g in df.groupby("grade", observed=True):
         y = g[C.TARGET]
-        rows.append({"grade": grade, "loans": len(g), "actual_default_pct": 100 * y.mean(),
+        rows.append({"grade": grade, "loans": len(g), "actual_default_pct": 100 * float(y.mean()),
                      "borrower_pd_pct": 100 * g["borrower"].mean(), "full_pd_pct": 100 * g["full"].mean(),
                      "auc_within_borrower": roc_auc_score(y, g["borrower"]) if y.nunique() > 1 else np.nan,
                      "auc_within_full": roc_auc_score(y, g["full"]) if y.nunique() > 1 else np.nan})
