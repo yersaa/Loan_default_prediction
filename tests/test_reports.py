@@ -3,6 +3,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from src import benchmark
 from src import config as C
 from src.audit import invalid_values, iqr_outliers, plot_missing, print_audit, run_audit
 from src.benchmark import (
@@ -18,7 +19,7 @@ from src.database import build_database, run_all_queries
 from src.eda import run_eda
 from src.explain import approval_table, error_analysis, grade_recovery, missed_defaults_profile, run_explain
 from src.features import modeling_frame
-from src.models import train_and_compare
+from src.models import model_specs, train_and_compare
 
 
 @pytest.mark.unit
@@ -127,6 +128,18 @@ def test_fit_memory_measures_one_model(tmp_project, loans):
     assert fit_memory("logistic") >= 0
     with pytest.raises(StopIteration):
         fit_memory("no_such_model")
+
+
+@pytest.mark.integration
+def test_model_fit_memory_covers_every_model_and_removes_snapshot(tmp_project, loans, monkeypatch):
+    """Замер в текущем процессе вместо дочерних: дочерние не видят временные пути теста."""
+    C.PARQUET.parent.mkdir(parents=True, exist_ok=True)
+    loans.to_parquet(C.PARQUET, index=False)
+    monkeypatch.setattr(benchmark, "run_isolated", lambda func, arg, repeats: [func(arg, False)])
+    report = benchmark.model_fit_memory()
+    assert set(report) == {spec.name for spec in model_specs()}
+    assert all(row["fit_peak_mb"] >= 0 for row in report.values())
+    assert not (C.REPORTS / TRAIN_SNAPSHOT).exists()
 
 
 @pytest.mark.integration
