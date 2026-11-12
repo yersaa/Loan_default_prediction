@@ -4,13 +4,13 @@
     "sample_rows": 200000,
     "n_columns_raw": 151,
     "all_cols_mb": 272.8,
-    "selected_cols_mb": 69.5,
-    "selected_optimized_mb": 21.9,
-    "full_parquet_loaded_optimized_mb": 247.9,
+    "selected_cols_mb": 93.9,
+    "selected_optimized_mb": 34.1,
+    "full_parquet_loaded_optimized_mb": 385.9,
     "full_dataset_estimate_mb": {
       "all_cols": 3084,
-      "selected_cols": 786,
-      "selected_optimized": 248
+      "selected_cols": 1061,
+      "selected_optimized": 385
     }
   },
   "csv_vs_parquet": {
@@ -23,99 +23,99 @@
       "loan_status"
     ],
     "csv_gz": {
-      "seconds": 9.75,
-      "peak_mb": 161.7,
+      "seconds": 11.6,
+      "peak_mb": 162.0,
       "df_mb": 142.6,
       "runs_seconds": [
-        9.7,
-        10.17,
-        9.75
+        9.59,
+        11.87,
+        11.6
       ],
       "file_mb": 374.4
     },
     "parquet": {
-      "seconds": 0.23,
-      "peak_mb": 244.0,
+      "seconds": 0.26,
+      "peak_mb": 247.7,
       "df_mb": 47.4,
       "runs_seconds": [
+        0.26,
         0.28,
-        0.22,
-        0.23
+        0.24
       ],
-      "file_mb": 76.0
+      "file_mb": 123.1
     }
   },
   "pandas_vs_sql": {
     "task": "дефолтность по году и грейду",
     "pandas_parquet": {
-      "seconds": 0.88,
-      "peak_mb": 378.3,
+      "seconds": 0.89,
+      "peak_mb": 382.5,
       "df_mb": 0.0,
       "runs_seconds": [
-        0.9,
-        0.88,
-        0.85
+        0.89,
+        0.83,
+        0.89
       ]
     },
     "sqlite": {
-      "seconds": 2.68,
+      "seconds": 2.78,
       "peak_mb": 5.4,
       "df_mb": 0.0,
       "runs_seconds": [
-        7.25,
-        2.68,
-        2.59
+        2.72,
+        2.88,
+        2.78
       ]
     },
     "results_match": true
   },
   "model_fit_memory": {
     "Dummy (prior)": {
-      "fit_peak_mb": 8.1,
+      "fit_peak_mb": 4.6,
       "runs_mb": [
-        8.1,
-        10.2,
+        4.4,
+        8.0,
         4.6
       ]
     },
     "Grade only (LogReg)": {
-      "fit_peak_mb": 40.5,
+      "fit_peak_mb": 40.9,
       "runs_mb": [
-        41.2,
-        36.6,
+        41.1,
+        40.9,
         40.5
       ]
     },
     "Logistic Regression": {
-      "fit_peak_mb": 400.9,
+      "fit_peak_mb": 664.4,
       "runs_mb": [
-        404.9,
-        400.2,
-        400.9
+        664.0,
+        664.4,
+        664.9
       ]
     },
     "LightGBM": {
-      "fit_peak_mb": 154.9,
+      "fit_peak_mb": 237.9,
       "runs_mb": [
-        152.7,
-        154.9,
-        157.8
+        237.9,
+        238.5,
+        237.7
       ]
     },
     "Logistic Regression (borrower only)": {
-      "fit_peak_mb": 299.9,
+      "fit_peak_mb": 346.3,
       "runs_mb": [
-        299.9,
-        299.4,
-        300.1
+        346.3,
+        346.3,
+        338.9
       ]
     },
     "LightGBM (borrower only)": {
-      "fit_peak_mb": 122.6,
+      "fit_peak_mb": 205.1,
       "runs_mb": [
-        120.0,
-        126.3,
-        122.6
+        205.1,
+        203.7,
+        207.8
       ]
     }
   }

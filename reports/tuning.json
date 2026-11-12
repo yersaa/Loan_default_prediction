@@ -3,85 +3,85 @@
     "params": {
       "model__C": 0.05
     },
-    "cv_auc": 0.6823,
-    "seconds": 16.1,
+    "cv_auc": 0.6904,
+    "seconds": 15.4,
     "grid": [
       {
         "params": "{'model__C': 0.05}",
-        "mean_test_score": 0.6822589013336303
+        "mean_test_score": 0.6903821247078689
       },
       {
         "params": "{'model__C': 1.0}",
-        "mean_test_score": 0.6812098579415141
+        "mean_test_score": 0.6886157995643493
       }
     ]
   },
   "LightGBM": {
     "params": {
       "model__n_estimators": 300,
-      "model__num_leaves": 31
+      "model__num_leaves": 15
     },
-    "cv_auc": 0.6845,
-    "seconds": 53.5,
+    "cv_auc": 0.6948,
+    "seconds": 45.1,
     "grid": [
       {
-        "params": "{'model__n_estimators': 300, 'model__num_leaves': 31}",
-        "mean_test_score": 0.6844958783386064
+        "params": "{'model__n_estimators': 300, 'model__num_leaves': 15}",
+        "mean_test_score": 0.6947840881003936
       },
       {
-        "params": "{'model__n_estimators': 300, 'model__num_leaves': 63}",
-        "mean_test_score": 0.6808878104857398
+        "params": "{'model__n_estimators': 300, 'model__num_leaves': 31}",
+        "mean_test_score": 0.6929811480119444
+      },
+      {
+        "params": "{'model__n_estimators': 600, 'model__num_leaves': 15}",
+        "mean_test_score": 0.692426297939369
       },
       {
         "params": "{'model__n_estimators': 600, 'model__num_leaves': 31}",
-        "mean_test_score": 0.6805446200323368
-      },
-      {
-        "params": "{'model__n_estimators': 600, 'model__num_leaves': 63}",
-        "mean_test_score": 0.6735190609188008
+        "mean_test_score": 0.6879068735023849
       }
     ]
   },
   "Logistic Regression (borrower only)": {
     "params": {
-      "model__C": 0.05
+      "model__C": 1.0
     },
-    "cv_auc": 0.6737,
-    "seconds": 12.0,
+    "cv_auc": 0.685,
+    "seconds": 9.5,
     "grid": [
       {
         "params": "{'model__C': 0.05}",
-        "mean_test_score": 0.6737104829818876
+        "mean_test_score": 0.6849429848700633
       },
       {
         "params": "{'model__C': 1.0}",
-        "mean_test_score": 0.6735345196466804
+        "mean_test_score": 0.6849640293569279
       }
     ]
   },
   "LightGBM (borrower only)": {
     "params": {
       "model__n_estimators": 300,
-      "model__num_leaves": 31
+      "model__num_leaves": 15
     },
-    "cv_auc": 0.6787,
-    "seconds": 41.5,
+    "cv_auc": 0.6936,
+    "seconds": 37.9,
     "grid": [
       {
-        "params": "{'model__n_estimators': 300, 'model__num_leaves': 31}",
-        "mean_test_score": 0.6786815079560902
+        "params": "{'model__n_estimators': 300, 'model__num_leaves': 15}",
+        "mean_test_score": 0.693564313657104
       },
       {
-        "params": "{'model__n_estimators': 300, 'model__num_leaves': 63}",
-        "mean_test_score": 0.6768011200401188
+        "params": "{'model__n_estimators': 300, 'model__num_leaves': 31}",
+        "mean_test_score": 0.6919427551057908
+      },
+      {
+        "params": "{'model__n_estimators': 600, 'model__num_leaves': 15}",
+        "mean_test_score": 0.6913223390086759
       },
       {
         "params": "{'model__n_estimators': 600, 'model__num_leaves': 31}",
-        "mean_test_score": 0.676225246550416
-      },
-      {
-        "params": "{'model__n_estimators': 600, 'model__num_leaves': 63}",
-        "mean_test_score": 0.671474195152688
+        "mean_test_score": 0.6873429659737326
       }
     ]
   }

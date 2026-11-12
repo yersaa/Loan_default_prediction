@@ -13,26 +13,26 @@
   },
   "Logistic Regression": {
     "file": "logistic.joblib",
-    "threshold": 0.14999999999999997,
-    "platt_a": 1.0064435923666029,
-    "platt_b": 0.09034982024133797
+    "threshold": 0.15999999999999998,
+    "platt_a": 0.9916541737252715,
+    "platt_b": 0.034201988752769905
   },
   "LightGBM": {
     "file": "lightgbm.joblib",
-    "threshold": 0.14999999999999997,
-    "platt_a": 0.9360001589313676,
-    "platt_b": -0.0293858976648866
+    "threshold": 0.15999999999999998,
+    "platt_a": 0.9772458734193922,
+    "platt_b": 0.03695227969977086
   },
   "Logistic Regression (borrower only)": {
     "file": "logistic_borrower.joblib",
-    "threshold": 0.13999999999999999,
-    "platt_a": 1.0377447894816214,
-    "platt_b": 0.12321967368969812
+    "threshold": 0.14999999999999997,
+    "platt_a": 1.0173389316007777,
+    "platt_b": 0.05752411034310166
   },
   "LightGBM (borrower only)": {
     "file": "lightgbm_borrower.joblib",
-    "threshold": 0.14999999999999997,
-    "platt_a": 0.9530029488334099,
-    "platt_b": -0.027318902768721287
+    "threshold": 0.15999999999999998,
+    "platt_a": 1.012881894285768,
+    "platt_b": 0.07008619562041489
   }
 }

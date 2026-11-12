@@ -2,12 +2,12 @@
   "sample_rows": 200000,
   "n_columns_raw": 151,
   "all_cols_mb": 272.8,
-  "selected_cols_mb": 69.5,
-  "selected_optimized_mb": 21.9,
-  "full_parquet_loaded_optimized_mb": 247.9,
+  "selected_cols_mb": 93.9,
+  "selected_optimized_mb": 34.1,
+  "full_parquet_loaded_optimized_mb": 385.9,
   "full_dataset_estimate_mb": {
     "all_cols": 3084,
-    "selected_cols": 786,
-    "selected_optimized": 248
+    "selected_cols": 1061,
+    "selected_optimized": 385
   }
 }

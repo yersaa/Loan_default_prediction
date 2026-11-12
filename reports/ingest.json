@@ -1,7 +1,7 @@
 {
   "rows_raw": 2260701,
   "rows": 2260668,
-  "seconds": 32.5,
+  "seconds": 35.6,
   "csv_gz_mb": 374.4,
-  "parquet_mb": 76.0
+  "parquet_mb": 123.1
 }

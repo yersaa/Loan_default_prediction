@@ -4,8 +4,24 @@
   "summary_lines_removed": 33,
   "duplicate_ids": 0,
   "missing_pct": {
+    "mths_since_last_record": 84.11,
+    "mths_since_last_delinq": 51.25,
+    "mths_since_recent_inq": 13.07,
     "emp_length": 6.5,
+    "mo_sin_old_il_acct": 6.15,
+    "bc_util": 3.36,
+    "percent_bc_gt_75": 3.33,
+    "bc_open_to_buy": 3.31,
+    "mths_since_recent_bc": 3.25,
+    "avg_cur_bal": 3.11,
+    "mo_sin_rcnt_tl": 3.11,
+    "num_tl_op_past_12m": 3.11,
+    "total_rev_hi_lim": 3.11,
+    "mo_sin_old_rev_tl_op": 3.11,
     "mort_acc": 2.21,
+    "total_bc_limit": 2.21,
+    "acc_open_past_24mths": 2.21,
+    "total_bal_ex_mort": 2.21,
     "last_pymnt_d": 0.11,
     "revol_util": 0.08,
     "dti": 0.08,
@@ -18,6 +34,11 @@
     "fico_range_low > fico_range_high": 0,
     "earliest_cr_line позже issue_d": 0,
     "int_rate вне 5–31%": 0
+  },
+  "bureau_timing": {
+    "rows_checked": 2190391,
+    "max_excess_months": 10.0,
+    "rows_over_12_months": 0
   },
   "iqr_outliers": {
     "loan_amnt": {
@@ -70,7 +91,7 @@
     "rows_checked": 200000,
     "n_columns": 151,
     "columns_over_50pct_missing": 57,
-    "kept_columns": 33,
+    "kept_columns": 49,
     "known_leakage_columns_excluded": [
       "collection_recovery_fee",
       "debt_settlement_flag",

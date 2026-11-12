@@ -1,11 +1,11 @@
 {
   "rule": "max valid_auc (2014); логрегрессия, если отстаёт меньше чем на 0.005",
   "best_by_valid_auc": "LightGBM",
-  "selected": "Logistic Regression",
+  "selected": "LightGBM",
   "valid_auc": {
-    "Logistic Regression": 0.6733,
-    "LightGBM": 0.6772,
-    "Logistic Regression (borrower only)": 0.6527,
-    "LightGBM (borrower only)": 0.6632
+    "Logistic Regression": 0.6804,
+    "LightGBM": 0.6888,
+    "Logistic Regression (borrower only)": 0.6684,
+    "LightGBM (borrower only)": 0.6809
   }
 }
