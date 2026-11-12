@@ -15,7 +15,7 @@ COURSE = "Programming for Data Analysis and Database"
 TITLE = "Прогноз дефолта по займам LendingClub"
 
 # Единственные числа, которые вписываются вручную: обновите после `pytest --cov=src --cov=main --cov=app`
-TEST_COUNT, COVERAGE_PCT = 109, 93
+TEST_COUNT, COVERAGE_PCT = 111, 94
 
 BRAND = {"pine": "14342B", "green": "2E7D5B", "mint": "DCEAE3", "tint": "F1F6F3", "amber": "D9901A",
          "rust": "B9472E", "ink": "1C2421", "muted": "5B6B65", "line": "C9D6D0", "white": "FFFFFF"}
@@ -61,6 +61,7 @@ class Results:
     loss: pd.DataFrame
     state: pd.DataFrame
     metadata: dict
+    feature_count: int
 
     def m(self, model: str, column: str) -> float:
         return float(self.metrics.set_index("model").loc[model, column])
@@ -91,4 +92,5 @@ def load() -> Results:
         income=_csv("sql/income_vs_grade_avg.csv"), loss=_csv("sql/loss_by_grade.csv"),
         state=_csv("sql/state_rank.csv"),
         metadata=json.loads((ROOT / "models" / "metadata.json").read_text(encoding="utf-8")),
+        feature_count=len(json.loads((ROOT / "models" / "feature_defaults.json").read_text(encoding="utf-8"))),
     )

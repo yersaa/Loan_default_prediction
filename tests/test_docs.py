@@ -15,8 +15,8 @@ README = (ROOT / "README.md").read_text(encoding="utf-8")
 METRICS = pd.read_csv(ROOT / "reports" / "model_metrics.csv").set_index("model")
 README_ROWS = {
     "Только подгрейд LC (LogReg)": "Grade only (LogReg)",
-    "**Logistic Regression, выбрана**": "Logistic Regression",
-    "| LightGBM |": "LightGBM",
+    "| Logistic Regression |": "Logistic Regression",
+    "**LightGBM, выбран**": "LightGBM",
     "Logistic Regression (поля заёмщика)": "Logistic Regression (borrower only)",
     "LightGBM (поля заёмщика)": "LightGBM (borrower only)",
 }
@@ -31,9 +31,10 @@ def test_readme_metrics_match_reports(label, model):
 
 def test_readme_names_the_model_chosen_by_the_rule():
     selection = json.loads((ROOT / "reports" / "model_selection.json").read_text(encoding="utf-8"))
-    assert selection["selected"] == "Logistic Regression"
+    assert selection["selected"] == "LightGBM"
+    assert "**LightGBM, выбран**" in README
     gap = METRICS.loc["LightGBM", "valid_auc"] - METRICS.loc["Logistic Regression", "valid_auc"]
-    assert gap < C.SIMPLICITY_MARGIN_AUC
+    assert gap >= C.SIMPLICITY_MARGIN_AUC  # отрыв больше запаса, поэтому правило оставляет LightGBM
 
 
 def test_readme_cohort_sizes_match_metadata():
