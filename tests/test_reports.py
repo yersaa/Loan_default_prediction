@@ -135,11 +135,23 @@ def test_model_fit_memory_covers_every_model_and_removes_snapshot(tmp_project, l
     """Замер в текущем процессе вместо дочерних: дочерние не видят временные пути теста."""
     C.PARQUET.parent.mkdir(parents=True, exist_ok=True)
     loans.to_parquet(C.PARQUET, index=False)
-    monkeypatch.setattr(benchmark, "run_isolated", lambda func, arg, repeats: [func(arg, False)])
+    monkeypatch.setattr(benchmark, "run_isolated", lambda func, arg, repeats: [func(arg, benchmark.current_paths())])
     report = benchmark.model_fit_memory()
     assert set(report) == {spec.name for spec in model_specs()}
     assert all(row["fit_peak_mb"] >= 0 for row in report.values())
     assert not (C.REPORTS / TRAIN_SNAPSHOT).exists()
+
+
+@pytest.mark.integration
+def test_child_process_uses_the_parent_paths(tmp_project, loans):
+    """Замер идёт в настоящем новом процессе. Обучающий набор лежит только во временной папке теста,
+    поэтому процесс с путями по умолчанию его бы не нашёл."""
+    C.PARQUET.parent.mkdir(parents=True, exist_ok=True)
+    loans.to_parquet(C.PARQUET, index=False)
+    save_train_snapshot()
+    assert not (C.ROOT / "reports" / TRAIN_SNAPSHOT).exists()
+    peaks = benchmark.run_isolated(benchmark._isolated_fit, "dummy", repeats=1)
+    assert len(peaks) == 1 and peaks[0] >= 0
 
 
 @pytest.mark.integration

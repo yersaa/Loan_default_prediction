@@ -63,21 +63,35 @@ TASKS = {"read_csv_gz": read_csv_gz, "read_parquet": read_parquet,
          "pandas_aggregate": pandas_aggregate, "sql_aggregate": sql_aggregate}
 
 
-def _isolated_task(name: str, sample_mode: bool) -> tuple:
+SHARED_PATHS = ("RAW_CSV", "PARQUET", "DB_PATH", "REPORTS")
+
+
+def current_paths() -> dict:
+    """Пути текущего процесса: передаются дочерним процессам, чтобы они работали с теми же файлами."""
+    return {name: getattr(C, name) for name in SHARED_PATHS}
+
+
+def use_paths(paths: dict) -> None:
+    """Новый процесс загружает config заново, с путями по умолчанию. Повторяем в нём пути родителя
+    (демо-режим или отдельная папка результатов ноутбука)."""
+    for name, value in paths.items():
+        setattr(C, name, value)
+
+
+def _isolated_task(name: str, paths: dict) -> tuple:
     """Выполняется в новом процессе: импорты уже оплачены, в замер входит только сама задача."""
-    if sample_mode:
-        C.activate_sample()
+    use_paths(paths)
     with measure() as m:
         result = TASKS[name]()
     return m.seconds, m.peak_mb, mb(result)
 
 
 def run_isolated(func: Callable, arg: str, repeats: int = REPEATS) -> list:
-    """Запускает func(arg, sample_mode) в новом процессе repeats раз и возвращает результаты всех запусков."""
+    """Запускает func(arg, paths) в новом процессе repeats раз и возвращает результаты всех запусков."""
     runs = []
     for _ in range(repeats):
         with ProcessPoolExecutor(max_workers=1, mp_context=mp.get_context("spawn")) as pool:
-            runs.append(pool.submit(func, arg, C.SAMPLE_MODE).result())
+            runs.append(pool.submit(func, arg, current_paths()).result())
     return runs
 
 
@@ -119,10 +133,9 @@ def fit_memory(slug: str) -> float:
     return m.peak_mb
 
 
-def _isolated_fit(slug: str, sample_mode: bool) -> float:
+def _isolated_fit(slug: str, paths: dict) -> float:
     """Выполняется в новом процессе, чтобы модели не влияли на замеры друг друга."""
-    if sample_mode:
-        C.activate_sample()
+    use_paths(paths)
     return fit_memory(slug)
 
 
