@@ -13,6 +13,7 @@ SHIPPED_MODELS = ROOT / "models"  # модели из репозитория: д
 STATE_FILE = REPORTS / "state.json"
 SQL_DIR = ROOT / "sql"
 SAMPLE_RUN = ROOT / "sample_run"
+NOTEBOOK_RUN = ROOT / "notebook_run"  # результаты ноутбука на полных данных
 SAMPLE_MODE = False
 
 CHUNKSIZE = 250_000
@@ -24,21 +25,48 @@ SHAP_SAMPLE_ROWS = 5_000
 MEMORY_SAMPLE_ROWS = 200_000
 
 
-def activate_sample() -> None:
-    """Режим демонстрации: данные из выборки, результаты в sample_run/, опубликованные отчёты не трогаем.
+def redirect_outputs(folder: Path) -> None:
+    """Все результаты (база, отчёты, графики, модели) пишутся в folder, опубликованные reports/ и models/ не меняются.
 
-    Остальные модули читают пути как C.PARQUET, C.REPORTS и т. д. в момент использования,
+    Остальные модули читают пути как C.REPORTS, C.MODELS и т. д. в момент использования,
     поэтому достаточно один раз заменить их здесь (для этого нужен global).
     """
-    global PARQUET, DB_PATH, REPORTS, FIGURES, MODELS, STATE_FILE, SAMPLE_MODE
-    SAMPLE_MODE = True
-    PARQUET = SAMPLE_PARQUET
-    DB_PATH = SAMPLE_RUN / "db" / "lending.db"
-    REPORTS = SAMPLE_RUN / "reports"
+    global DB_PATH, REPORTS, FIGURES, MODELS, STATE_FILE
+    DB_PATH = folder / "db" / "lending.db"
+    REPORTS = folder / "reports"
     FIGURES = REPORTS / "figures"
-    MODELS = SAMPLE_RUN / "models"
+    MODELS = folder / "models"
     STATE_FILE = REPORTS / "state.json"
 
+
+def activate_sample() -> None:
+    """Режим демонстрации: данные из выборки, результаты в sample_run/."""
+    global PARQUET, SAMPLE_MODE
+    SAMPLE_MODE = True
+    PARQUET = SAMPLE_PARQUET
+    redirect_outputs(SAMPLE_RUN)
+
+
+# Поля кредитного отчёта заёмщика на момент заявки. LendingClub публикует их для займов с августа 2012 г.,
+# у более ранних займов здесь пропуски. Аудит проверяет, что поля не обновлялись после выдачи.
+BUREAU_COLS = [
+    "acc_open_past_24mths",    # счетов открыто за последние 24 месяца
+    "num_tl_op_past_12m",      # счетов открыто за последние 12 месяцев
+    "mo_sin_rcnt_tl",          # месяцев с открытия самого нового счёта
+    "mo_sin_old_rev_tl_op",    # месяцев с открытия самого старого возобновляемого счёта
+    "mo_sin_old_il_acct",      # месяцев с открытия самого старого кредита с рассрочкой
+    "mths_since_recent_bc",    # месяцев с открытия последней банковской карты
+    "mths_since_recent_inq",   # месяцев с последнего запроса в кредитное бюро
+    "mths_since_last_delinq",  # месяцев с последней просрочки (пусто — просрочек не было)
+    "mths_since_last_record",  # месяцев с последней публичной записи: суд, банкротство (пусто — не было)
+    "total_bc_limit",          # суммарный лимит по банковским картам
+    "bc_open_to_buy",          # свободный лимит по банковским картам
+    "bc_util",                 # использование лимита по банковским картам, %
+    "percent_bc_gt_75",        # доля карт, использованных более чем на 75%
+    "total_rev_hi_lim",        # суммарный лимит по возобновляемым счетам
+    "avg_cur_bal",             # средний текущий остаток по всем счетам
+    "total_bal_ex_mort",       # общий долг без ипотеки
+]
 
 # Поля анкеты: известны до выдачи займа -> можно использовать в модели
 APP_COLS = [
@@ -47,7 +75,7 @@ APP_COLS = [
     "addr_state", "dti", "delinq_2yrs", "earliest_cr_line", "fico_range_low", "fico_range_high",
     "inq_last_6mths", "open_acc", "pub_rec", "revol_bal", "revol_util", "total_acc",
     "initial_list_status", "application_type", "mort_acc", "pub_rec_bankruptcies",
-]
+] + BUREAU_COLS
 
 # Поля исхода: появляются ПОСЛЕ выдачи. Хранятся для аналитики и оценки портфеля, в модель не идут
 OUTCOME_COLS = ["loan_status", "total_pymnt", "recoveries", "last_pymnt_d"]
@@ -72,7 +100,7 @@ FLOAT32 = [
     "fico_range_low", "fico_range_high", "inq_last_6mths", "open_acc", "pub_rec",
     "revol_bal", "revol_util", "total_acc", "mort_acc", "pub_rec_bankruptcies",
     "total_pymnt", "recoveries",
-]
+] + BUREAU_COLS
 
 DATE_COLS = ["issue_d", "earliest_cr_line", "last_pymnt_d"]
 
@@ -98,9 +126,11 @@ NUM_FEATURES = [
     "inq_last_6mths", "open_acc", "pub_rec", "revol_bal", "revol_util", "total_acc",
     "mort_acc", "pub_rec_bankruptcies", "credit_hist_months", "term_months", "emp_years",
     "loan_to_income", "installment_to_income",
-]
+] + BUREAU_COLS
+# addr_state (штат) в модель не входит: на валидации он не улучшает качество, а в реальном скоринге
+# такой признак требует проверки на справедливость. Для аналитики по штатам он остаётся в данных.
 CAT_FEATURES = [
-    "grade", "sub_grade", "home_ownership", "verification_status", "purpose", "addr_state",
+    "grade", "sub_grade", "home_ownership", "verification_status", "purpose",
     "initial_list_status", "application_type",
 ]
 FEATURES = NUM_FEATURES + CAT_FEATURES

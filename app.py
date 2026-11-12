@@ -96,7 +96,7 @@ def scoring_tab() -> None:
             "home_ownership": c3.selectbox("Жильё", HOME_OPTIONS, index=1),
             "purpose": c3.selectbox("Цель", ["debt_consolidation", "credit_card", "home_improvement",
                                              "small_business", "major_purchase", "medical", "car", "other"]),
-            "verification_status": "Source Verified", "addr_state": "CA",
+            "verification_status": "Source Verified",
             "initial_list_status": "w", "application_type": "Individual",
         }
         submitted = st.form_submit_button("Оценить")

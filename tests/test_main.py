@@ -139,6 +139,17 @@ def test_activate_sample_redirects_outputs(monkeypatch):
 
 
 @pytest.mark.unit
+def test_redirect_outputs_keeps_data_path_and_moves_every_output(monkeypatch, tmp_path):
+    for name in ("PARQUET", "DB_PATH", "REPORTS", "FIGURES", "MODELS", "STATE_FILE"):
+        monkeypatch.setattr(C, name, getattr(C, name))
+    data = C.PARQUET
+    C.redirect_outputs(tmp_path)
+    assert C.PARQUET == data
+    for path in (C.DB_PATH, C.REPORTS, C.FIGURES, C.MODELS, C.STATE_FILE):
+        assert tmp_path in path.parents
+
+
+@pytest.mark.unit
 def test_parse_args():
     args = app_main.parse_args(["--sample", "--run-all"])
     assert args.sample and args.run_all and not args.make_sample

@@ -29,7 +29,7 @@ APPLICATION = {
     "loan_amnt": 15000, "term_months": 36, "int_rate": 13.0, "sub_grade": "C1", "annual_inc": 65000, "dti": 18,
     "fico": 700, "emp_years": 5, "revol_util": 50, "inq_last_6mths": 1, "credit_hist_months": 180,
     "home_ownership": "RENT", "purpose": "debt_consolidation", "verification_status": "Source Verified",
-    "addr_state": "CA", "initial_list_status": "w", "application_type": "Individual",
+    "initial_list_status": "w", "application_type": "Individual",
 }
 
 

@@ -85,8 +85,9 @@ def logreg_pipeline(num: list, cat: list, C_reg: float = 1.0) -> Pipeline:
     Числа: пропуски -> медиана, обрезка выбросов, масштабирование. Категории: one-hot,
     значения реже 50 раз объединяются. Подготовка обучается на тех же данных, что и модель.
     """
-    numeric = Pipeline([("impute", SimpleImputer(strategy="median")), ("clip", Winsorizer()),
-                        ("scale", StandardScaler())])
+    # keep_empty_features: у займов до августа 2012 г. поля кредитного отчёта целиком пустые; колонку не отбрасываем
+    numeric = Pipeline([("impute", SimpleImputer(strategy="median", keep_empty_features=True)),
+                        ("clip", Winsorizer()), ("scale", StandardScaler())])
     categorical = Pipeline([("impute", SimpleImputer(strategy="most_frequent")),
                             ("onehot", OneHotEncoder(handle_unknown="ignore", min_frequency=50))])
     prep = ColumnTransformer([("num", numeric, num), ("cat", categorical, cat)])
@@ -118,7 +119,7 @@ class ModelSpec:
 
 
 LR_GRID = {"model__C": [0.05, 1.0]}
-LGBM_GRID = {"model__num_leaves": [31, 63], "model__n_estimators": [300, 600]}
+LGBM_GRID = {"model__num_leaves": [15, 31], "model__n_estimators": [300, 600]}
 
 
 def model_specs() -> list:

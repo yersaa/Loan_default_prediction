@@ -1,4 +1,5 @@
-"""Аудит качества данных: пропуски, дубликаты, некорректные значения, выбросы (IQR), покрытие колонок."""
+"""Аудит качества данных: пропуски, дубликаты, некорректные значения, выбросы (IQR), покрытие колонок,
+проверка, что поля кредитного отчёта относятся к моменту заявки."""
 import matplotlib.pyplot as plt
 import pandas as pd
 
@@ -8,6 +9,7 @@ from src.style import BLUE, save
 
 HIGH_MISSING_PCT = 50
 OUTLIER_COLS = ["loan_amnt", "annual_inc", "dti", "revol_bal", "int_rate"]
+BUREAU_MAX_EXCESS_MONTHS = 12  # допуск: кредитный отчёт запрашивают за несколько месяцев до выдачи
 
 
 def iqr_outliers(s: pd.Series) -> dict:
@@ -32,8 +34,23 @@ def invalid_values(df: pd.DataFrame) -> dict:
     return {name: int(mask.sum()) for name, mask in checks.items()}
 
 
+def bureau_timing(df: pd.DataFrame) -> dict:
+    """Проверяет, что поля кредитного отчёта не обновлялись после выдачи займа.
+
+    mo_sin_old_rev_tl_op — возраст самого старого возобновляемого счёта в месяцах. На момент заявки он не может
+    заметно превышать длину кредитной истории (issue_d - earliest_cr_line). Если бы LendingClub обновлял поле
+    к дате выгрузки (2018 г.), у старых займов превышение составляло бы годы.
+    """
+    issued, first_credit = df["issue_d"].dt, df["earliest_cr_line"].dt
+    history = (issued.year - first_credit.year) * 12 + (issued.month - first_credit.month)
+    excess = (df["mo_sin_old_rev_tl_op"] - history).dropna()
+    return {"rows_checked": len(excess),
+            "max_excess_months": float(excess.max()) if len(excess) else None,
+            "rows_over_12_months": int((excess > BUREAU_MAX_EXCESS_MONTHS).sum())}
+
+
 def raw_column_audit(n_rows: int | None = None) -> dict | None:
-    """Покрытие всех колонок исходного файла (на первых строках): обоснование отбора 33 колонок."""
+    """Покрытие всех колонок исходного файла (на первых строках): обоснование отбора нужных колонок."""
     if not C.RAW_CSV.exists():
         return None
     raw = pd.read_csv(C.RAW_CSV, nrows=n_rows or C.MEMORY_SAMPLE_ROWS, low_memory=False)
@@ -68,6 +85,7 @@ def run_audit(df: pd.DataFrame) -> dict:
         "duplicate_ids": int(df["id"].duplicated().sum()),
         "missing_pct": {k: v for k, v in missing.sort_values(ascending=False).items() if v > 0},
         "invalid_values": invalid_values(df),
+        "bureau_timing": bureau_timing(df),
         "iqr_outliers": {c: iqr_outliers(df[c]) for c in OUTLIER_COLS},
         "loan_status": df["loan_status"].value_counts().to_dict(),
         "issue_year_range": [int(df["issue_d"].dt.year.min()), int(df["issue_d"].dt.year.max())],
@@ -88,6 +106,9 @@ def print_audit(report: dict) -> None:
     print("Некорректные значения:")
     for name, n in report["invalid_values"].items():
         print(f"  {name:<34}{n:>8,}")
+    timing = report["bureau_timing"]
+    print(f"Поля кредитного отчёта: проверено {timing['rows_checked']:,} займов, обновлённых после выдачи: "
+          f"{timing['rows_over_12_months']}")
     print("Выбросы IQR, %:")
     for col, info in report["iqr_outliers"].items():
         print(f"  {col:<12}{info['share_pct']:>6}  (граница сверху {info['high']:,})")

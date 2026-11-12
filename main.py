@@ -145,7 +145,7 @@ def step_predict() -> None:
         "credit_hist_months": ask_number("Длина кредитной истории, мес.", 180, *L["credit_hist_months"]),
         "home_ownership": ask_choice("Жильё", HOME_OPTIONS, "RENT"),
         "purpose": "debt_consolidation", "verification_status": "Source Verified",
-        "addr_state": "CA", "initial_list_status": "w", "application_type": "Individual",
+        "initial_list_status": "w", "application_type": "Individual",
     }
     for name, res in predict_pd(raw).items():
         print(f"  {name:<26} PD = {res['pd']:.1%}  (порог {res['threshold']:.2f}) -> {res['decision']}")

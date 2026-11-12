@@ -148,11 +148,11 @@ def test_make_sample_prefers_matured(tmp_project, loans, monkeypatch):
 
 @pytest.mark.integration
 def test_memory_report(tmp_project, loans):
-    _write_raw_csv(C.RAW_CSV, loans.head(500), summary_rows=0)
+    _write_raw_csv(C.RAW_CSV, loans.head(4000), summary_rows=0)
     with pytest.raises(FileNotFoundError):
         csv_to_parquet(src=C.RAW_CSV.with_name("nope.csv.gz"))
     csv_to_parquet()
-    report = memory_report(n_rows=300)
+    report = memory_report(n_rows=3000)  # достаточно строк, чтобы разница не терялась при округлении до 0.1 МБ
     assert report["selected_optimized_mb"] < report["selected_cols_mb"]
     assert report["n_columns_raw"] == len(C.USECOLS) + 1
     assert "full_dataset_estimate_mb" in report

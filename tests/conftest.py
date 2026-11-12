@@ -48,6 +48,12 @@ def synthetic_loans(n: int = 12_000, seed: int = 7) -> pd.DataFrame:
         "total_pymnt": loan_amnt * np.where(defaulted, 0.6, 1.2), "recoveries": np.where(defaulted, 100.0, 0.0),
         "last_pymnt_d": pd.Timestamp("2018-01-01"),
     })
+    # Поля кредитного отчёта: публикуются с августа 2012 г.; возраст старейшего счёта не длиннее кредитной истории
+    history = (issue.year - 2000) * 12 + (issue.month - 1)
+    published = np.asarray(issue >= pd.Timestamp("2012-08-01"))
+    for col in C.BUREAU_COLS:
+        values = history - rng.integers(0, 24, n) if col == "mo_sin_old_rev_tl_op" else rng.uniform(0, 100, n)
+        frame[col] = np.where(published, values, np.nan)
     frame["earliest_cr_line"] = frame["earliest_cr_line"].astype("datetime64[ns]")
     frame["last_pymnt_d"] = frame["last_pymnt_d"].astype("datetime64[ns]")
     return optimize_dtypes(frame)

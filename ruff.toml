@@ -1,5 +1,5 @@
 line-length = 120
-extend-exclude = [".venv", "sample_run"]
+extend-exclude = [".venv", "sample_run", "notebook_run"]
 
 [lint]
 select = ["E", "F", "W", "I", "B", "UP"]

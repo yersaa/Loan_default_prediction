@@ -7,6 +7,9 @@ db/
 # Sample-mode outputs must never overwrite the published full-run reports
 sample_run/
 
+# Notebook outputs on the full data (database, figures, models)
+notebook_run/
+
 # Python
 .venv/
 __pycache__/
