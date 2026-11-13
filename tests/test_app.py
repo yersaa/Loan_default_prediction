@@ -16,7 +16,8 @@ pytestmark = pytest.mark.integration
 def test_dashboard_runs_and_scores_an_application():
     app = AppTest.from_file(str(C.ROOT / "app.py"), default_timeout=120).run()
     assert not app.exception
-    assert [t.label for t in app.tabs] == ["Аналитика", "Скоринг заявки", "Модели"]
+    assert [t.label for t in app.tabs] == ["О проекте", "Аналитика", "Скоринг заявки", "Модели"]
+    assert any("ROC-AUC" in m.label for m in app.metric)  # итоги полного запуска на вкладке «О проекте»
     app.button[0].click().run()
     assert not app.exception
     assert any("PD =" in m.value for m in app.metric)

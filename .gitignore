@@ -35,3 +35,7 @@ docs/defense_prep.md
 docs/*.docx
 docs/guide_full.pdf
 reports/full_run.log
+
+# Canva template (downloaded separately) and generated chart images for the deck
+template.pptx
+docs/deck_charts/

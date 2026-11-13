@@ -1,4 +1,4 @@
-"""Мини-дашборд Streamlit: аналитика по займам + скоринг заявки.
+"""Мини-дашборд Streamlit: итоги проекта, аналитика по займам с фильтрами, оценка заявки и сравнение моделей.
 Запуск: streamlit run app.py"""
 from pathlib import Path
 
@@ -14,6 +14,20 @@ from src.style import BLUE, BLUES_SEQUENTIAL, ORANGE
 st.set_page_config(page_title="LendingClub PD", layout="wide")
 
 FULL_DATA_HINT = "Демо-выборка: доли и дефолтность не отражают полный набор. Полные данные: пункт меню 1."
+MODEL_NAMES = {
+    "Dummy (prior)": "Константа (доля дефолтов)", "Grade only (LogReg)": "Только грейд LendingClub",
+    "Logistic Regression": "Логистическая регрессия", "LightGBM": "LightGBM", "XGBoost": "XGBoost",
+    "Neural network (MLP)": "Нейросеть (MLP)", "Ensemble (LightGBM + XGBoost + MLP)": "Ансамбль",
+    "Logistic Regression (borrower only)": "Логистическая регрессия, поля заёмщика",
+    "LightGBM (borrower only)": "LightGBM, поля заёмщика",
+}
+METRICS_HELP = """
+**ROC-AUC** — умеет ли модель отличать рискованных заёмщиков от надёжных: 0,5 — угадывание, 1 — идеал.
+По ней выбирается модель. **PR-AUC** — как хорошо модель находит именно дефолты (у угадывания около 0,15).
+**ECE** — можно ли верить цифре PD: средний разрыв между прогнозом и фактом.
+**Recall** — какую долю дефолтов модель поймала при пороге; **precision** — какая доля отказов пришлась на настоящие
+дефолты. **Accuracy** здесь обманчива: модель «все вернут» получает 0,85, не найдя ни одного дефолта.
+"""
 
 
 def dataset_path() -> Path:
@@ -43,6 +57,36 @@ def sidebar_filters(df: pd.DataFrame) -> pd.DataFrame:
     if purposes:
         mask &= df.purpose.isin(purposes)
     return df[mask]
+
+
+def about_tab() -> None:
+    """Вкладка «О проекте»: задача и главные результаты полного запуска в четырёх цифрах."""
+    st.markdown(
+        "По анкете заёмщика модель оценивает **вероятность дефолта (PD)** — шанс, что он не вернёт займ. "
+        "Обучена на займах 2007–2014 годов, проверена на займах 2015 года. Используются только данные, "
+        "известные в момент заявки.")
+    metrics_path = C.ROOT / "reports" / "model_metrics.csv"
+    selection = load_json(C.ROOT / "reports" / "model_selection.json")
+    if not metrics_path.exists() or not selection:
+        st.info("Результаты полного запуска не найдены (пункт меню 6).")
+        return
+    metrics = pd.read_csv(metrics_path).set_index("model")
+    chosen = selection["selected"]
+    row = metrics.loc[chosen]
+    approval = pd.read_csv(C.ROOT / "reports" / "approval_table.csv")
+    approve = approval[approval["model"] == chosen].set_index("approval_rate")["default_rate_pct"]
+    k1, k2, k3, k4 = st.columns(4)
+    k1.metric("Займов в данных", "2,26 млн")
+    k2.metric(f"ROC-AUC ({MODEL_NAMES[chosen]})", f"{row['roc_auc']:.3f}",
+              f"{row['roc_auc'] - metrics.loc['Grade only (LogReg)', 'roc_auc']:+.3f} к грейду LendingClub")
+    k3.metric("Ловит дефолтов", f"{row['recall']:.0%}", f"при пороге PD {row['threshold']:.2f}", delta_color="off")
+    k4.metric("Дефолт при одобрении 80%", f"{approve[0.8]:.1f}%", f"{approve[0.8] - approve[1.0]:+.1f} п. п.",
+              delta_color="inverse")
+    st.markdown(
+        "- **Вкладка «Аналитика»** — дефолтность по грейдам, годам и штатам с фильтрами.\n"
+        "- **Вкладка «Скоринг заявки»** — введите анкету и получите PD и решение.\n"
+        "- **Вкладка «Модели»** — сравнение девяти моделей и что означает каждая метрика.\n\n"
+        "Весь проект по шагам — в ноутбуке `project_walkthrough.ipynb`.")
 
 
 def analytics_tab(df: pd.DataFrame) -> None:
@@ -108,9 +152,14 @@ def scoring_tab() -> None:
             return
         cols = st.columns(len(result))
         for col, (name, res) in zip(cols, result.items(), strict=True):
-            col.metric(name, f"PD = {res['pd']:.1%}")
+            col.metric(MODEL_NAMES.get(name, name), f"PD = {res['pd']:.1%}")
             show = col.error if res["decision"] == "отказ" else col.success
             show(f"Решение: {res['decision']} (порог {res['threshold']:.2f})")
+        st.markdown(
+            "**Как читать.** PD — вероятность, что заёмщик не вернёт займ. Если она не ниже порога, модель "
+            "советует отказать. Порог подобран на займах 2014 года; в реальном банке его выбирает кредитор "
+            "под свой риск-аппетит. Главная модель проекта — LightGBM; «поля заёмщика» — вариант без грейда "
+            "и ставки, которые назначает сам LendingClub.")
         st.caption("Калибровка выполнена на займах на 36 мес., поэтому PD для срока 60 мес. менее надёжна.")
 
 
@@ -121,14 +170,30 @@ def models_tab() -> None:
         st.info("Модели ещё не обучены (пункт меню 6).")
         return
     st.subheader("Сравнение моделей на созревших займах 2015 г.")
-    st.dataframe(pd.read_csv(path))
+    metrics = pd.read_csv(path)
     selection = load_json(C.REPORTS / "model_selection.json")
+    chosen = selection["selected"] if selection else None
+    table = pd.DataFrame({
+        "Модель": metrics["model"].map(lambda m: MODEL_NAMES.get(m, m) + (" ✔ выбрана" if m == chosen else "")),
+        "ROC-AUC": metrics["roc_auc"], "PR-AUC": metrics["pr_auc"], "ECE": metrics["ece"],
+        "Порог": metrics["threshold"], "Recall": metrics["recall"], "Precision": metrics["precision"],
+        "Accuracy": metrics["accuracy"], "Обучение, с": metrics["fit_seconds"],
+    })
+    st.dataframe(table.round(3), hide_index=True)
     if selection:
-        st.markdown(f"**Выбранная модель:** {selection['selected']}. Правило: {selection['rule']}.")
+        st.markdown(f"**Выбранная модель:** {MODEL_NAMES.get(chosen, chosen)}. Правило выбора задано заранее: "
+                    "лучшая ROC-AUC на 2014 годе; логистическая регрессия, если отстаёт меньше чем на 0,005; "
+                    "XGBoost, нейросеть или ансамбль — только если лучше на 0,005 и больше.")
+    with st.expander("Что означают метрики"):
+        st.markdown(METRICS_HELP)
     approval = C.REPORTS / "approval_table.csv"
     if approval.exists():
-        st.subheader("Таблица одобрения")
-        st.dataframe(pd.read_csv(approval))
+        st.subheader("Таблица одобрения: дефолтность портфеля, если одобрять долю самых надёжных заявок")
+        approval_table = pd.read_csv(approval)
+        approval_table["model"] = approval_table["model"].map(lambda m: MODEL_NAMES.get(m, m))
+        st.plotly_chart(px.line(approval_table, x=approval_table["approval_rate"] * 100, y="default_rate_pct",
+                                color="model", markers=True,
+                                labels={"x": "Одобряем, % заявок", "default_rate_pct": "Дефолт, %", "model": ""}))
     censoring = C.REPORTS / "censoring_sensitivity.csv"
     if censoring.exists():
         st.subheader("Чувствительность к цензурированию")
@@ -148,12 +213,14 @@ def main() -> None:
     except FileNotFoundError as e:
         st.error(str(e))
         return
-    tab1, tab2, tab3 = st.tabs(["Аналитика", "Скоринг заявки", "Модели"])
-    with tab1:
+    about, analytics, scoring, models = st.tabs(["О проекте", "Аналитика", "Скоринг заявки", "Модели"])
+    with about:
+        about_tab()
+    with analytics:
         analytics_tab(sidebar_filters(df))
-    with tab2:
+    with scoring:
         scoring_tab()
-    with tab3:
+    with models:
         models_tab()
 
 
