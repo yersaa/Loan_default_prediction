@@ -1,4 +1,5 @@
 """Модели PD: baseline (Dummy, только грейд) vs LogReg и LightGBM, на всех полях и только на полях заёмщика.
+Претенденты на всех полях: XGBoost, нейросеть (MLP) и ансамбль из LightGBM, XGBoost и нейросети.
 
 Подбор гиперпараметров — TimeSeriesSplit на 2007–2013. Порог и калибровка — на 2014 годе (модель обучена на 2007–2013).
 Оценка — на созревших займах 2015 года, которые не участвуют ни в одном из этих шагов.
@@ -19,6 +20,7 @@ from scipy.special import expit, logit
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.compose import ColumnTransformer
 from sklearn.dummy import DummyClassifier
+from sklearn.ensemble import VotingClassifier
 from sklearn.impute import SimpleImputer
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import (
@@ -31,8 +33,10 @@ from sklearn.metrics import (
     roc_curve,
 )
 from sklearn.model_selection import GridSearchCV, TimeSeriesSplit
+from sklearn.neural_network import MLPClassifier
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
+from xgboost import XGBClassifier
 
 from src import config as C
 from src.data_io import load_json, save_json
@@ -79,8 +83,8 @@ class CategoryCaster(BaseEstimator, TransformerMixin):
         return X
 
 
-def logreg_pipeline(num: list, cat: list, C_reg: float = 1.0) -> Pipeline:
-    """Логистическая регрессия с подготовкой данных внутри Pipeline.
+def scaled_onehot(num: list, cat: list) -> ColumnTransformer:
+    """Подготовка данных для моделей, которым нужны числа одного масштаба: регрессии и нейросети.
 
     Числа: пропуски -> медиана, обрезка выбросов, масштабирование. Категории: one-hot,
     значения реже 50 раз объединяются. Подготовка обучается на тех же данных, что и модель.
@@ -90,8 +94,23 @@ def logreg_pipeline(num: list, cat: list, C_reg: float = 1.0) -> Pipeline:
                         ("clip", Winsorizer()), ("scale", StandardScaler())])
     categorical = Pipeline([("impute", SimpleImputer(strategy="most_frequent")),
                             ("onehot", OneHotEncoder(handle_unknown="ignore", min_frequency=50))])
-    prep = ColumnTransformer([("num", numeric, num), ("cat", categorical, cat)])
-    return Pipeline([("prep", prep), ("model", LogisticRegression(C=C_reg, max_iter=1000))])
+    return ColumnTransformer([("num", numeric, num), ("cat", categorical, cat)])
+
+
+def logreg_pipeline(num: list, cat: list, C_reg: float = 1.0) -> Pipeline:
+    """Логистическая регрессия с подготовкой данных внутри Pipeline."""
+    return Pipeline([("prep", scaled_onehot(num, cat)), ("model", LogisticRegression(C=C_reg, max_iter=1000))])
+
+
+def mlp_pipeline(num: list, cat: list, **params) -> Pipeline:
+    """Нейронная сеть прямого распространения: два скрытых слоя, 64 и 32 нейрона.
+
+    Обучение останавливается, когда качество на отложенных 10% обучающих данных перестаёт расти
+    (early_stopping), поэтому число эпох подбирать не нужно. alpha — сила L2-регуляризации.
+    """
+    model = MLPClassifier(hidden_layer_sizes=(64, 32), batch_size=512, early_stopping=True, n_iter_no_change=3,
+                          max_iter=40, random_state=C.RANDOM_STATE, **params)
+    return Pipeline([("prep", scaled_onehot(num, cat)), ("model", model)])
 
 
 def grade_only_pipeline() -> Pipeline:
@@ -107,23 +126,40 @@ def lgbm_pipeline(num: list, cat: list, **params) -> Pipeline:
     return Pipeline([("cast", CategoryCaster(num, cat)), ("model", model)])
 
 
+def xgb_pipeline(num: list, cat: list, **params) -> Pipeline:
+    """XGBoost: другая реализация градиентного бустинга. Как и LightGBM, сам работает с пропусками и категориями.
+
+    Настройки по умолчанию (глубина 6, шаг 0.3) на этих данных переобучаются, поэтому шаг меньше,
+    а в листе должно быть не меньше 50 займов.
+    """
+    model = XGBClassifier(tree_method="hist", enable_categorical=True, learning_rate=0.05, subsample=0.8,
+                          colsample_bytree=0.8, min_child_weight=50, random_state=C.RANDOM_STATE, **params)
+    return Pipeline([("cast", CategoryCaster(num, cat)), ("model", model)])
+
+
 @dataclass(frozen=True)
 class ModelSpec:
-    """Описание модели: как её создать, что подбирать и является ли она базовой."""
+    """Описание модели: как её создать, что подбирать и какую роль она играет в сравнении."""
     name: str
     slug: str
-    build: Callable[..., object]
+    build: Callable[..., object] | None = None
     grid: dict = field(default_factory=dict)
     baseline: bool = False
     family: str = ""
+    challenger: bool = False  # претендент: заменяет выбранную модель, только если лучше её на запас
+    members: tuple = ()       # для ансамбля: названия моделей, вероятности которых усредняются
 
 
 LR_GRID = {"model__C": [0.05, 1.0]}
 LGBM_GRID = {"model__num_leaves": [15, 31], "model__n_estimators": [300, 600]}
+XGB_GRID = {"model__max_depth": [4, 6], "model__n_estimators": [300, 600]}
+MLP_GRID = {"model__alpha": [0.001, 0.1]}
+ENSEMBLE = "Ensemble (LightGBM + XGBoost + MLP)"
 
 
 def model_specs() -> list:
-    """Все сравниваемые модели: два baseline и по две модели на всех полях и только на полях заёмщика."""
+    """Все сравниваемые модели: два baseline, основные модели на всех полях и только на полях заёмщика
+    и три претендента на всех полях: XGBoost, нейросеть и ансамбль."""
     num, cat = C.NUM_FEATURES, C.CAT_FEATURES
     b_num, b_cat = C.BORROWER_NUM, C.BORROWER_CAT
     # Третий аргумент — функция, которая создаёт новую необученную модель. lambda **p передаёт в неё
@@ -134,6 +170,12 @@ def model_specs() -> list:
         ModelSpec("Logistic Regression", "logistic", lambda **p: logreg_pipeline(num, cat, **p), LR_GRID,
                   family="logreg"),
         ModelSpec("LightGBM", "lightgbm", lambda **p: lgbm_pipeline(num, cat, **p), LGBM_GRID, family="gbm"),
+        ModelSpec("XGBoost", "xgboost", lambda **p: xgb_pipeline(num, cat, **p), XGB_GRID, family="gbm",
+                  challenger=True),
+        ModelSpec("Neural network (MLP)", "mlp", lambda **p: mlp_pipeline(num, cat, **p), MLP_GRID, family="nn",
+                  challenger=True),
+        ModelSpec(ENSEMBLE, "ensemble", family="ensemble", challenger=True,
+                  members=("LightGBM", "XGBoost", "Neural network (MLP)")),
         ModelSpec("Logistic Regression (borrower only)", "logistic_borrower",
                   lambda **p: logreg_pipeline(b_num, b_cat, **p), LR_GRID, family="logreg"),
         ModelSpec("LightGBM (borrower only)", "lightgbm_borrower",
@@ -167,7 +209,14 @@ def tune(X: pd.DataFrame, y: pd.Series, n_splits: int = 3) -> dict:
 
 
 def build_model(spec: ModelSpec, best: dict) -> BaseEstimator:
-    """Создаёт необученную модель с гиперпараметрами из подбора (или стандартными, если подбора не было)."""
+    """Создаёт необученную модель с гиперпараметрами из подбора (или стандартными, если подбора не было).
+
+    Ансамбль собирается из своих моделей: VotingClassifier с voting="soft" усредняет их вероятности.
+    """
+    if spec.members:
+        by_name = {s.name: s for s in model_specs()}
+        parts = [(by_name[name].slug, build_model(by_name[name], best)) for name in spec.members]
+        return VotingClassifier(parts, voting="soft")
     params = best.get(spec.name, {}).get("params", {})
     return spec.build(**_plain_params(params))
 
@@ -258,18 +307,32 @@ def fit_one(spec: ModelSpec, best: dict, windows: dict) -> dict:
 
 
 def select_model(metrics: pd.DataFrame, specs: list) -> dict:
-    """Правило из config.SIMPLICITY_MARGIN_AUC применяется к AUC на валидации, а не на test."""
-    candidates = {s.name: s for s in specs if not s.baseline}
-    table = metrics[metrics["model"].isin(candidates)].set_index("model")["valid_auc"]
+    """Выбор модели по AUC на валидации (не на test), запас задан в config.SIMPLICITY_MARGIN_AUC.
+
+    Шаг 1. Среди основных моделей берётся лучшая; логистическая регрессия предпочитается,
+           если отстаёт меньше чем на запас.
+    Шаг 2. Претендент (XGBoost, нейросеть, ансамбль) заменяет выбранную модель, только если лучше её
+           на запас или больше: ради прироста в пределах шума модель не меняется.
+    """
+    by_name = {s.name: s for s in specs}
+    scores = metrics.set_index("model")["valid_auc"]
+    scores = scores[[name for name in scores.index if name in by_name and not by_name[name].baseline]]
+    table = scores[[name for name in scores.index if not by_name[name].challenger]]
+    challengers = scores[[name for name in scores.index if by_name[name].challenger]]
     best_name = table.idxmax()
     choice = best_name
-    logreg = [n for n in table.index if candidates[n].family == "logreg"
+    logreg = [n for n in table.index if by_name[n].family == "logreg"
               and ("borrower" in n) == ("borrower" in best_name)]
-    if logreg and candidates[best_name].family != "logreg" \
+    if logreg and by_name[best_name].family != "logreg" \
             and table[best_name] - table[logreg[0]] < C.SIMPLICITY_MARGIN_AUC:
         choice = logreg[0]
-    return {"rule": f"max valid_auc (2014); логрегрессия, если отстаёт меньше чем на {C.SIMPLICITY_MARGIN_AUC}",
-            "best_by_valid_auc": best_name, "selected": choice, "valid_auc": table.round(4).to_dict()}
+    if len(challengers) and challengers.max() - scores[choice] >= C.SIMPLICITY_MARGIN_AUC:
+        choice = challengers.idxmax()
+    margin = C.SIMPLICITY_MARGIN_AUC
+    return {"rule": f"max valid_auc (2014); логрегрессия, если отстаёт меньше чем на {margin}; "
+                    f"претендент заменяет выбранную модель, только если лучше на {margin} или больше",
+            "best_by_valid_auc": best_name, "selected": choice, "valid_auc": table.round(4).to_dict(),
+            "challengers_valid_auc": challengers.round(4).to_dict()}
 
 
 def save_metadata(windows: dict) -> None:

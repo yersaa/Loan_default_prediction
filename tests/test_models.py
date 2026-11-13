@@ -9,10 +9,12 @@ from src.censoring import censoring_sensitivity
 from src.data_io import load_json
 from src.features import add_target, build_features, modeling_frame, temporal_split
 from src.models import (
+    ENSEMBLE,
     CategoryCaster,
     Winsorizer,
     apply_platt,
     best_f1_threshold,
+    build_model,
     expected_calibration_error,
     fit_platt,
     ks_stat,
@@ -90,20 +92,50 @@ def test_category_caster_maps_unseen_to_nan():
     assert list(out["c"].cat.categories) == ["a", "b"]
 
 
+def _selection(**valid_auc: float) -> dict:
+    """Выбор модели при заданных AUC на валидации; не названные модели получают низкое значение."""
+    short = {"dummy": "Dummy (prior)", "grade": "Grade only (LogReg)", "logreg": "Logistic Regression",
+             "lgbm": "LightGBM", "xgb": "XGBoost", "mlp": "Neural network (MLP)", "ensemble": ENSEMBLE,
+             "logreg_b": "Logistic Regression (borrower only)", "lgbm_b": "LightGBM (borrower only)"}
+    scores = {short[key]: value for key, value in valid_auc.items()}
+    specs = model_specs()
+    metrics = pd.DataFrame({"model": [s.name for s in specs], "valid_auc": [scores.get(s.name, 0.6) for s in specs]})
+    return select_model(metrics, specs)
+
+
 @pytest.mark.unit
 def test_select_model_prefers_simple_logreg_within_margin():
-    specs = model_specs()
-    metrics = pd.DataFrame({"model": [s.name for s in specs],
-                            "valid_auc": [0.5, 0.65, 0.700, 0.703, 0.68, 0.685]})
-    assert select_model(metrics, specs)["selected"] == "Logistic Regression"
+    assert _selection(logreg=0.700, lgbm=0.703)["selected"] == "Logistic Regression"
 
 
 @pytest.mark.unit
 def test_select_model_keeps_gbm_when_gap_is_large():
-    specs = model_specs()
-    metrics = pd.DataFrame({"model": [s.name for s in specs],
-                            "valid_auc": [0.5, 0.65, 0.690, 0.710, 0.68, 0.685]})
-    assert select_model(metrics, specs)["selected"] == "LightGBM"
+    assert _selection(logreg=0.690, lgbm=0.710)["selected"] == "LightGBM"
+
+
+@pytest.mark.unit
+def test_challenger_within_margin_does_not_replace_the_choice():
+    result = _selection(logreg=0.680, lgbm=0.689, xgb=0.690, ensemble=0.691)
+    assert result["selected"] == "LightGBM"
+    assert result["challengers_valid_auc"][ENSEMBLE] == 0.691
+    assert "XGBoost" not in result["valid_auc"]
+
+
+@pytest.mark.unit
+def test_challenger_replaces_the_choice_when_better_by_the_margin():
+    assert _selection(logreg=0.680, lgbm=0.689, xgb=0.690, ensemble=0.695)["selected"] == ENSEMBLE
+
+
+@pytest.mark.unit
+def test_ensemble_averages_the_probabilities_of_its_members(loans):
+    frame = modeling_frame(loans.copy())
+    train = temporal_split(frame)["train"]
+    X, y = train[C.FEATURES], train[C.TARGET].astype(int)
+    specs = {s.name: s for s in model_specs()}
+    ensemble = build_model(specs[ENSEMBLE], {}).fit(X, y)
+    parts = [model.predict_proba(X)[:, 1] for model in ensemble.estimators_]
+    assert len(parts) == 3
+    assert np.allclose(ensemble.predict_proba(X)[:, 1], np.mean(parts, axis=0))
 
 
 @pytest.mark.unit
