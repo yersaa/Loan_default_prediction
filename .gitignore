@@ -13,6 +13,7 @@ notebook_run/
 # Third-party Kaggle notebooks kept next to the project for reference, not part of it
 /*-loan-defaulters-prediction.*
 /minimizing-risks-for-loan-investments.*
+/loan-default-prediction.*
 
 # Python
 .venv/

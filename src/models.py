@@ -24,6 +24,7 @@ from sklearn.ensemble import VotingClassifier
 from sklearn.impute import SimpleImputer
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import (
+    accuracy_score,
     average_precision_score,
     brier_score_loss,
     f1_score,
@@ -255,12 +256,18 @@ def expected_calibration_error(y: pd.Series, p: np.ndarray, bins: int = 10) -> f
 
 
 def evaluate(y: pd.Series, p: np.ndarray, threshold: float) -> dict:
-    """Все метрики качества одной модели на test при заданном пороге."""
+    """Все метрики качества одной модели на test.
+
+    ROC-AUC, Gini, KS, PR-AUC, Brier и ECE оценивают сами вероятности и от порога не зависят.
+    Accuracy, precision, recall и F1 считаются после порога: заём с PD >= threshold считается дефолтом.
+    accuracy_all_repay — доля погашенных займов, то есть accuracy модели «все вернут» без единого найденного дефолта.
+    """
     pred = p >= threshold
     auc = roc_auc_score(y, p)
     return {"roc_auc": auc, "gini": 2 * auc - 1, "pr_auc": average_precision_score(y, p),
             "ks": ks_stat(y, p), "brier": brier_score_loss(y, p), "ece": expected_calibration_error(y, p),
-            "threshold": threshold, "precision": precision_score(y, pred, zero_division=0),
+            "threshold": threshold, "accuracy": accuracy_score(y, pred),
+            "accuracy_all_repay": float(1 - np.mean(y)), "precision": precision_score(y, pred, zero_division=0),
             "recall": recall_score(y, pred), "f1": f1_score(y, pred)}
 
 

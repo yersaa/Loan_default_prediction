@@ -1,6 +1,7 @@
 line-length = 120
 extend-exclude = [".venv", "sample_run", "notebook_run", "minimizing-risks-for-loan-investments.ipynb",
-                  "lending-club-loan-defaulters-prediction.ipynb", "xgboost-loan-defaulters-prediction.ipynb"]
+                  "lending-club-loan-defaulters-prediction.ipynb", "xgboost-loan-defaulters-prediction.ipynb",
+                  "loan-default-prediction.ipynb"]
 
 [lint]
 select = ["E", "F", "W", "I", "B", "UP"]
