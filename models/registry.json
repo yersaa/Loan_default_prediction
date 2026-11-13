@@ -23,6 +23,24 @@
     "platt_a": 0.9772458734193922,
     "platt_b": 0.03695227969977086
   },
+  "XGBoost": {
+    "file": "xgboost.joblib",
+    "threshold": 0.16999999999999998,
+    "platt_a": 0.9696045517921448,
+    "platt_b": 0.02284940518438816
+  },
+  "Neural network (MLP)": {
+    "file": "mlp.joblib",
+    "threshold": 0.14999999999999997,
+    "platt_a": 0.9483166676024005,
+    "platt_b": 0.09679107114540829
+  },
+  "Ensemble (LightGBM + XGBoost + MLP)": {
+    "file": "ensemble.joblib",
+    "threshold": 0.15999999999999998,
+    "platt_a": 1.0159103637348013,
+    "platt_b": 0.14276139257153156
+  },
   "Logistic Regression (borrower only)": {
     "file": "logistic_borrower.joblib",
     "threshold": 0.14999999999999997,

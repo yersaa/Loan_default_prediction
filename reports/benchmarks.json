@@ -23,24 +23,24 @@
       "loan_status"
     ],
     "csv_gz": {
-      "seconds": 11.6,
+      "seconds": 13.38,
       "peak_mb": 162.0,
       "df_mb": 142.6,
       "runs_seconds": [
-        9.59,
-        11.87,
-        11.6
+        13.23,
+        13.38,
+        13.73
       ],
       "file_mb": 374.4
     },
     "parquet": {
-      "seconds": 0.26,
-      "peak_mb": 247.7,
+      "seconds": 0.33,
+      "peak_mb": 233.9,
       "df_mb": 47.4,
       "runs_seconds": [
-        0.26,
-        0.28,
-        0.24
+        0.8,
+        0.33,
+        0.33
       ],
       "file_mb": 123.1
     }
@@ -48,74 +48,98 @@
   "pandas_vs_sql": {
     "task": "дефолтность по году и грейду",
     "pandas_parquet": {
-      "seconds": 0.89,
-      "peak_mb": 382.5,
+      "seconds": 1.16,
+      "peak_mb": 393.1,
       "df_mb": 0.0,
       "runs_seconds": [
-        0.89,
-        0.83,
-        0.89
+        1.15,
+        1.16,
+        1.16
       ]
     },
     "sqlite": {
-      "seconds": 2.78,
-      "peak_mb": 5.4,
+      "seconds": 3.95,
+      "peak_mb": 5.2,
       "df_mb": 0.0,
       "runs_seconds": [
-        2.72,
-        2.88,
-        2.78
+        12.21,
+        3.95,
+        3.73
       ]
     },
     "results_match": true
   },
   "model_fit_memory": {
     "Dummy (prior)": {
-      "fit_peak_mb": 4.6,
+      "fit_peak_mb": 10.5,
       "runs_mb": [
+        10.5,
         4.4,
-        8.0,
-        4.6
+        10.5
       ]
     },
     "Grade only (LogReg)": {
-      "fit_peak_mb": 40.9,
+      "fit_peak_mb": 40.3,
       "runs_mb": [
-        41.1,
-        40.9,
-        40.5
+        40.2,
+        41.0,
+        40.3
       ]
     },
     "Logistic Regression": {
       "fit_peak_mb": 664.4,
       "runs_mb": [
-        664.0,
         664.4,
-        664.9
+        664.1,
+        664.4
       ]
     },
     "LightGBM": {
-      "fit_peak_mb": 237.9,
+      "fit_peak_mb": 237.8,
       "runs_mb": [
-        237.9,
-        238.5,
-        237.7
+        237.8,
+        241.9,
+        235.6
+      ]
+    },
+    "XGBoost": {
+      "fit_peak_mb": 309.2,
+      "runs_mb": [
+        315.9,
+        309.2,
+        305.9
+      ]
+    },
+    "Neural network (MLP)": {
+      "fit_peak_mb": 698.9,
+      "runs_mb": [
+        689.5,
+        698.9,
+        698.9
+      ]
+    },
+    "Ensemble (LightGBM + XGBoost + MLP)": {
+      "fit_peak_mb": 657.6,
+      "runs_mb": [
+        660.7,
+        651.3,
+        657.6
       ]
     },
     "Logistic Regression (borrower only)": {
-      "fit_peak_mb": 346.3,
+      "fit_peak_mb": 339.5,
       "runs_mb": [
-        346.3,
-        346.3,
-        338.9
+        338.9,
+        339.5,
+        346.4
       ]
     },
     "LightGBM (borrower only)": {
-      "fit_peak_mb": 205.1,
+      "fit_peak_mb": 207.8,
       "runs_mb": [
-        205.1,
-        203.7,
-        207.8
+        211.1,
+        207.8,
+        203.4
       ]
     }
   }

@@ -4,7 +4,7 @@
       "model__C": 0.05
     },
     "cv_auc": 0.6904,
-    "seconds": 15.4,
+    "seconds": 21.2,
     "grid": [
       {
         "params": "{'model__C': 0.05}",
@@ -22,7 +22,7 @@
       "model__num_leaves": 15
     },
     "cv_auc": 0.6948,
-    "seconds": 45.1,
+    "seconds": 67.4,
     "grid": [
       {
         "params": "{'model__n_estimators': 300, 'model__num_leaves': 15}",
@@ -42,12 +42,55 @@
       }
     ]
   },
+  "XGBoost": {
+    "params": {
+      "model__max_depth": 4,
+      "model__n_estimators": 300
+    },
+    "cv_auc": 0.6964,
+    "seconds": 80.0,
+    "grid": [
+      {
+        "params": "{'model__max_depth': 4, 'model__n_estimators': 300}",
+        "mean_test_score": 0.6964078429776109
+      },
+      {
+        "params": "{'model__max_depth': 4, 'model__n_estimators': 600}",
+        "mean_test_score": 0.6954741735695449
+      },
+      {
+        "params": "{'model__max_depth': 6, 'model__n_estimators': 300}",
+        "mean_test_score": 0.6947413322261801
+      },
+      {
+        "params": "{'model__max_depth': 6, 'model__n_estimators': 600}",
+        "mean_test_score": 0.6907330920289342
+      }
+    ]
+  },
+  "Neural network (MLP)": {
+    "params": {
+      "model__alpha": 0.001
+    },
+    "cv_auc": 0.6832,
+    "seconds": 43.7,
+    "grid": [
+      {
+        "params": "{'model__alpha': 0.001}",
+        "mean_test_score": 0.6831670753084825
+      },
+      {
+        "params": "{'model__alpha': 0.1}",
+        "mean_test_score": 0.68242666969412
+      }
+    ]
+  },
   "Logistic Regression (borrower only)": {
     "params": {
       "model__C": 1.0
     },
     "cv_auc": 0.685,
-    "seconds": 9.5,
+    "seconds": 13.0,
     "grid": [
       {
         "params": "{'model__C': 0.05}",
@@ -65,7 +108,7 @@
       "model__num_leaves": 15
     },
     "cv_auc": 0.6936,
-    "seconds": 37.9,
+    "seconds": 51.9,
     "grid": [
       {
         "params": "{'model__n_estimators': 300, 'model__num_leaves': 15}",

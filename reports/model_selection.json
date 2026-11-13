@@ -1,5 +1,5 @@
 {
-  "rule": "max valid_auc (2014); логрегрессия, если отстаёт меньше чем на 0.005",
+  "rule": "max valid_auc (2014); логрегрессия, если отстаёт меньше чем на 0.005; претендент заменяет выбранную модель, только если лучше на 0.005 или больше",
   "best_by_valid_auc": "LightGBM",
   "selected": "LightGBM",
   "valid_auc": {
@@ -7,5 +7,10 @@
     "LightGBM": 0.6888,
     "Logistic Regression (borrower only)": 0.6684,
     "LightGBM (borrower only)": 0.6809
+  },
+  "challengers_valid_auc": {
+    "XGBoost": 0.6876,
+    "Neural network (MLP)": 0.6787,
+    "Ensemble (LightGBM + XGBoost + MLP)": 0.689
   }
 }
