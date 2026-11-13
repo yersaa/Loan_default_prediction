@@ -21,7 +21,7 @@ from docx.shared import Cm, Pt, RGBColor
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from build_report import Report, add_field, footer_page_numbers, rgb, set_font, setup_styles  # noqa: E402
-from guide_text import ARCHITECTURE, CAPTIONS, EXPLAIN, GLOSSARY, INTRO  # noqa: E402
+from guide_text import ARCHITECTURE, CAPTIONS, EXPLAIN, GLOSSARY, INTRO, OVERVIEW  # noqa: E402
 from results import AUTHOR, COURSE, GROUP  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -181,8 +181,9 @@ def render_code_cell(rep: Report, cell) -> None:
             para = rep.doc.add_paragraph()
             para.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
             add_inline(para, " ".join(paragraph.split()))
-    if key.startswith("src_"):  # исходный код функции из src/: объект Code хранит его в text/plain
-        source = "\n".join(o.get("data", {}).get("text/plain", "") for o in cell.outputs).strip()
+    if key.startswith("src_"):  # исходный код функции из src/ выведен блоком Markdown ```python ... ```
+        text = "\n".join(o.get("data", {}).get("text/markdown", "") for o in cell.outputs)
+        source = re.sub(r"^```python\n|```\s*$", "", text.strip()).strip("\n")
         if source:
             label(rep.doc, "Исходный код функции")
             monospace_block(rep.doc, source, 7.5, "F7F7F5")
@@ -295,9 +296,14 @@ def build() -> Path:
     doc.add_paragraph().add_run().add_break(WD_BREAK.PAGE)
 
     rep = Report(doc)
-    doc.add_heading("Как устроен проект", level=1)
+    doc.add_heading("Об этом документе", level=1)
     for paragraph in INTRO.strip().split("\n\n"):
         rep.p(" ".join(paragraph.split()))
+    doc.add_heading("Суть проекта простыми словами", level=1)
+    for heading, text in OVERVIEW:
+        doc.add_heading(heading, level=2)
+        rep.p(" ".join(text.split()))
+    doc.add_heading("Из чего состоит проект", level=1)
     rep.table(["Файл", "Назначение"], [list(row) for row in ARCHITECTURE], "Структура проекта", [5.5, 10.5])
     rep.p("Порядок работы конвейера: CSV.gz → Parquet (чтение частями) → аудит → база SQLite и SQL-запросы → "
           "разведочный анализ → признаки и разбиение по времени → подбор параметров и обучение девяти моделей → "
