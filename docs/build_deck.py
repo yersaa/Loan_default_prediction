@@ -467,7 +467,10 @@ def s08_method(d: Deck) -> None:
 def s09_models(d: Deck) -> None:
     r = d.r
     labels = {"Dummy (prior)": "Dummy", GRADE: "Только подгрейд", LR: "Logistic Regression", GBM: "LightGBM, выбран",
+              "XGBoost": "XGBoost", "Neural network (MLP)": "Нейросеть (MLP)",
+              "Ensemble (LightGBM + XGBoost + MLP)": "Ансамбль: LGBM + XGB + MLP",
               "Logistic Regression (borrower only)": "LogReg, поля заёмщика", GBM_B: "LightGBM, поля заёмщика"}
+    ens = "Ensemble (LightGBM + XGBoost + MLP)"
     order = list(labels)
     rows = [["Модель", "Valid AUC", "Test AUC", "Gini", "KS", "Brier", "ECE", "Обучение, с", "Размер, МБ"]]
     for m in order:
@@ -479,16 +482,21 @@ def s09_models(d: Deck) -> None:
                 f"логистическая регрессия предпочитается при отставании менее 0,005. Отставание {ru(gap)} больше запаса, "
                 f"поэтому выбран LightGBM. На тесте он лучше на {ru(r.m(GBM, 'roc_auc') - r.m(LR, 'roc_auc'))}. Цена выбора: "
                 "модель крупнее и объясняется через SHAP, а не через коэффициенты, поэтому логистическая регрессия остаётся "
-                "простой альтернативой. Калибровка снижает ECE почти вдвое и не меняет порядок заёмщиков.")
-    d.table(s, MARGIN, Inches(1.55), Inches(12.1), rows, [3.9, 1.0, 1.0, 0.9, 0.9, 1.05, 1.05, 1.2, 1.1], highlight=4,
-            size=14, row_height=0.5)
-    d.text(s, MARGIN, Inches(5.3), Inches(12.1), Inches(1.5),
+                "простой альтернативой. XGBoost, нейросеть и ансамбль взяты из решений на Kaggle; ансамбль лучше на "
+                f"валидации лишь на {ru(r.m(ens, 'valid_auc') - r.m(GBM, 'valid_auc'), 4)}, это шум, и выбор не меняется. "
+                "Калибровка снижает ECE почти вдвое и не меняет порядок заёмщиков.")
+    d.table(s, MARGIN, Inches(1.3), Inches(12.1), rows, [3.9, 1.0, 1.0, 0.9, 0.9, 1.05, 1.05, 1.2, 1.1], highlight=4,
+            size=12, row_height=0.4)
+    d.text(s, MARGIN, Inches(5.55), Inches(12.1), Inches(1.4),
            [[("Правило, заданное заранее: ", True),
              ("лучшая AUC на валидации, но логистическая регрессия при отставании менее 0,005. "
               f"Отставание {ru(gap)}: выбран LightGBM.", False)],
             [("Калибровка Платта на 2014 годе: ", True),
-             (f"ECE LightGBM {ru(r.m(GBM, 'ece_raw'), 4)} → {ru(r.m(GBM, 'ece'), 4)}, AUC не меняется.", False)]],
-           size=17)
+             (f"ECE LightGBM {ru(r.m(GBM, 'ece_raw'), 4)} → {ru(r.m(GBM, 'ece'), 4)}, AUC не меняется.", False)],
+            [("Претенденты: ", True),
+             (f"ансамбль лучше LightGBM на валидации на {ru(r.m(ens, 'valid_auc') - r.m(GBM, 'valid_auc'), 4)}, "
+              "меньше запаса 0,005: выбор не меняется.", False)]],
+           size=15)
 
 
 def s10_grade(d: Deck) -> None:
@@ -575,7 +583,7 @@ def s12_close(d: Deck) -> None:
     d.text(s, MARGIN, Inches(2.1), half, Inches(4.2), [
         "Грейды хорошо отражают риск, но не исчерпывают его.",
         "Незавершённые займы завышают оценку: нужен отбор созревших.",
-        "Новые данные дали больше, чем усложнение модели.",
+        "Новые данные дали больше, чем XGBoost, нейросеть и ансамбль.",
         "Модель на данных заёмщика сильнее грейда LendingClub.",
         "Parquet и типы данных позволяют работать с полным набором на обычном компьютере.",
     ], size=18, tint="white")

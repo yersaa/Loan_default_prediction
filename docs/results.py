@@ -15,7 +15,7 @@ COURSE = "Programming for Data Analysis and Database"
 TITLE = "Прогноз дефолта по займам LendingClub"
 
 # Единственные числа, которые вписываются вручную: обновите после `pytest --cov=src --cov=main --cov=app`
-TEST_COUNT, COVERAGE_PCT = 111, 94
+TEST_COUNT, COVERAGE_PCT = 114, 94
 
 BRAND = {"pine": "14342B", "green": "2E7D5B", "mint": "DCEAE3", "tint": "F1F6F3", "amber": "D9901A",
          "rust": "B9472E", "ink": "1C2421", "muted": "5B6B65", "line": "C9D6D0", "white": "FFFFFF"}

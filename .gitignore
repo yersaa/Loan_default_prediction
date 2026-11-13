@@ -10,6 +10,10 @@ sample_run/
 # Notebook outputs on the full data (database, figures, models)
 notebook_run/
 
+# Third-party Kaggle notebooks kept next to the project for reference, not part of it
+/*-loan-defaulters-prediction.*
+/minimizing-risks-for-loan-investments.*
+
 # Python
 .venv/
 __pycache__/
