@@ -29,3 +29,9 @@ reports/state.json
 
 # Course handout
 Темы_финальных_проектов_AI.pdf
+
+# Not published: the author's personal defense notes, Word sources of the PDFs, run logs
+docs/defense_prep.md
+docs/*.docx
+docs/guide_full.pdf
+reports/full_run.log

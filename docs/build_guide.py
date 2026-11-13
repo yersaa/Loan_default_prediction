@@ -1,6 +1,9 @@
 """Собирает docs/guide.docx — пояснительную записку к ноутбуку project_walkthrough.ipynb.
 
 Запуск из корня проекта после выполнения ноутбука:  python docs/build_guide.py
+                                                   python docs/build_guide.py --with-defense
+Второй вариант добавляет приложение с вопросами к защите из docs/defense_prep.md (личная шпаргалка автора, в
+репозиторий не входит) и пишет docs/guide_full.docx.
 Документ повторяет ноутбук по порядку: текст ячеек, код, подробное объяснение (docs/guide_text.py) и результаты —
 таблицы и графики из сохранённых выводов ноутбука. В конце: справочник модулей, вопросы к защите, глоссарий.
 """
@@ -28,6 +31,7 @@ ROOT = Path(__file__).resolve().parent.parent
 NOTEBOOK = ROOT / "project_walkthrough.ipynb"
 DEFENSE = ROOT / "docs" / "defense_prep.md"
 OUTPUT = ROOT / "docs" / "guide.docx"
+OUTPUT_FULL = ROOT / "docs" / "guide_full.docx"
 CODE_FONT = "Consolas"
 MAX_OUTPUT_LINES = 28
 INLINE = re.compile(r"(\*\*[^*]+\*\*|`[^`]+`|\[[^\]]+\]\([^)]+\))")
@@ -270,7 +274,7 @@ def title(doc: Document) -> None:
     doc.add_paragraph().add_run().add_break(WD_BREAK.PAGE)
 
 
-def build() -> Path:
+def build(with_defense: bool = False) -> Path:
     notebook = nbformat.read(NOTEBOOK, as_version=4)
     missing = [c.metadata.get("guide") for c in notebook.cells
                if c.cell_type == "code" and c.metadata.get("guide") not in EXPLAIN]
@@ -317,14 +321,16 @@ def build() -> Path:
 
     rep.page_break()
     module_reference(rep)
-    rep.page_break()
-    defense_questions(rep)
-    doc.add_heading("Приложение В. Глоссарий", level=1)
+    if with_defense:
+        rep.page_break()
+        defense_questions(rep)
+    doc.add_heading(f"Приложение {'В' if with_defense else 'Б'}. Глоссарий", level=1)
     rep.table(["Термин", "Значение"], [list(row) for row in GLOSSARY], "Термины проекта", [4.0, 12.0])
-    doc.save(OUTPUT)
-    print(f"Готово: {OUTPUT}")
-    return OUTPUT
+    output = OUTPUT_FULL if with_defense else OUTPUT
+    doc.save(output)
+    print(f"Готово: {output}")
+    return output
 
 
 if __name__ == "__main__":
-    build()
+    build(with_defense="--with-defense" in sys.argv)
