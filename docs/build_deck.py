@@ -1,619 +1,474 @@
-"""Собирает презентацию docs/presentation.pptx. Все числа читаются из reports/ через docs/results.py.
+"""Собирает docs/presentation.pptx в дизайне шаблона Canva (template.pptx в корне проекта).
 
-Запуск: python docs/build_deck.py
-Графики нативные: их можно редактировать в PowerPoint.
+Шаблон скачан из Canva (Share → Download → Microsoft PowerPoint) и в репозиторий не входит.
+Сборщик берёт из шаблона оформление и иллюстрации, выстраивает слайды под проект (часть слайдов —
+копии макетов шаблона), ставит графики проекта в палитре шаблона и добавляет заметки докладчика.
+Все числа читаются из reports/ через docs/results.py; график групп риска считается по сохранённой модели.
+
+Запуск из корня проекта (нужны полные данные data/loans.parquet):  python docs/build_deck.py
 """
-import re
+import copy
+import inspect
+import json
+import sys
+import textwrap
+from pathlib import Path
 
-from lxml import etree
+import matplotlib
+
+matplotlib.use("Agg")
+import joblib
+import matplotlib.pyplot as plt
+import pandas as pd
+from PIL import Image
 from pptx import Presentation
-from pptx.chart.data import CategoryChartData
-from pptx.dml.color import RGBColor
-from pptx.enum.chart import XL_CHART_TYPE, XL_LABEL_POSITION, XL_LEGEND_POSITION, XL_MARKER_STYLE
-from pptx.enum.shapes import MSO_SHAPE
-from pptx.enum.text import MSO_ANCHOR, PP_ALIGN
-from pptx.opc.constants import RELATIONSHIP_TYPE as RT
-from pptx.oxml.ns import qn
-from pptx.util import Emu, Inches, Pt
-from results import AUTHOR, BRAND, COURSE, COVERAGE_PCT, GROUP, ROOT, TEST_COUNT, TITLE, Results, load, ru, thousands
+from pptx.util import Inches, Pt
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from results import AUTHOR, GROUP, Results, load, ru, thousands  # noqa: E402
+
+from src import config as C  # noqa: E402
+from src.data_io import load_dataset  # noqa: E402
+from src.features import is_matured, modeling_frame, temporal_split  # noqa: E402
+from src.models import apply_platt  # noqa: E402
+
+ROOT = Path(__file__).resolve().parent.parent
+TEMPLATE = ROOT / "template.pptx"
 OUTPUT = ROOT / "docs" / "presentation.pptx"
-NUMERIC = re.compile(r"[\d\s ,.%—-]+")
-HEAD_FONT, BODY_FONT = "Cambria", "Calibri"
-SLIDE_W, SLIDE_H = Inches(13.333), Inches(7.5)
-MARGIN = Inches(0.6)
-GBM, LR, GRADE, GBM_B = "LightGBM", "Logistic Regression", "Grade only (LogReg)", "LightGBM (borrower only)"
-THEME_COLORS = {"dk1": "ink", "lt1": "white", "dk2": "pine", "lt2": "tint", "accent1": "green", "accent2": "amber",
-                "accent3": "rust", "accent4": "pine", "accent5": "muted", "accent6": "mint", "hlink": "green",
-                "folHlink": "muted"}
+CHARTS = ROOT / "docs" / "deck_charts"
+SCREENSHOTS = ROOT / "docs" / "screenshots"  # снимки дашборда Streamlit
+GBM, LR, GRADE, ENS = "LightGBM", "Logistic Regression", "Grade only (LogReg)", "Ensemble (LightGBM + XGBoost + MLP)"
+A = "{http://schemas.openxmlformats.org/drawingml/2006/main}"
+P = "{http://schemas.openxmlformats.org/presentationml/2006/main}"
+BODY = 25  # размер основного текста, пт (слайд шаблона 20 × 11,25 дюйма)
+
+# Палитра шаблона Canva
+DARK, GREEN, LIGHT, PALE, GREY = "#2D6A65", "#5BC27A", "#B5E08A", "#E6F9D5", "#9AA5A1"
+plt.rcParams.update({
+    "font.family": "DejaVu Sans", "font.size": 15, "axes.spines.top": False, "axes.spines.right": False,
+    "axes.edgecolor": GREY, "axes.labelcolor": DARK, "xtick.color": DARK, "ytick.color": DARK,
+    "axes.titleweight": "bold", "axes.titlecolor": DARK, "axes.titlesize": 17, "axes.titlelocation": "left",
+    "figure.facecolor": "white", "axes.facecolor": "white", "savefig.facecolor": "white",
+})
 
 
-def color(name: str) -> RGBColor:
-    return RGBColor.from_string(BRAND[name])
+# --------------------------------------------------------------------------------------------- графики
+def save(fig, name: str, facecolor: str = "white") -> Path:
+    CHARTS.mkdir(parents=True, exist_ok=True)
+    path = CHARTS / name
+    fig.tight_layout()
+    fig.savefig(path, dpi=200, facecolor=facecolor)
+    plt.close(fig)
+    return path
 
 
-def apply_theme(prs: Presentation) -> None:
-    """Цвета и шрифты задаются в теме, поэтому оформление меняется в одном месте."""
-    part = prs.slide_master.part.part_related_by(RT.THEME)
-    xml = part.blob.decode("utf-8")
-    for slot, brand in THEME_COLORS.items():
-        xml = re.sub(rf"(<a:{slot}>).*?(</a:{slot}>)", rf'\g<1><a:srgbClr val="{BRAND[brand]}"/>\g<2>', xml, flags=re.S)
-    xml = re.sub(r'(<a:majorFont>\s*<a:latin typeface=")[^"]*', rf"\g<1>{HEAD_FONT}", xml)
-    xml = re.sub(r'(<a:minorFont>\s*<a:latin typeface=")[^"]*', rf"\g<1>{BODY_FONT}", xml)
-    xml = re.sub(r'(<a:clrScheme name=")[^"]*', r"\g<1>LendingClub", xml)
-    part._blob = xml.encode("utf-8")
+def no_y_axis(ax) -> None:
+    ax.set_yticks([])
+    ax.spines["left"].set_visible(False)
 
 
-def set_layout_placeholders(prs: Presentation) -> tuple:
-    """Заголовки стоят на одном месте на всех слайдах: геометрия и шрифт заданы в макетах."""
-    title_slide, title_only = prs.slide_layouts[0], prs.slide_layouts[5]
-    for ph in title_only.placeholders:
-        if ph.placeholder_format.idx == 0:
-            ph.left, ph.top, ph.width, ph.height = MARGIN, Inches(0.4), SLIDE_W - 2 * MARGIN, Inches(1.0)
-            style_placeholder(ph, 30, "pine", MSO_ANCHOR.TOP)
-    for ph in list(title_only.placeholders):
-        if ph.placeholder_format.idx != 0:
-            ph._element.getparent().remove(ph._element)
-    for ph in title_slide.placeholders:
-        if ph.placeholder_format.idx == 0:
-            ph.left, ph.top, ph.width, ph.height = MARGIN, Inches(2.0), Inches(10.5), Inches(1.9)
-            style_placeholder(ph, 46, "white", MSO_ANCHOR.BOTTOM)
-        elif ph.placeholder_format.idx == 1:
-            ph.left, ph.top, ph.width, ph.height = MARGIN, Inches(4.1), Inches(10.5), Inches(1.4)
-            style_placeholder(ph, 18, "mint", MSO_ANCHOR.TOP)
-        else:
-            ph._element.getparent().remove(ph._element)
-    add_slide_number(title_only)
-    remove_unused_layouts(prs, keep=(title_slide, title_only))
-    return title_slide, title_only
+def chart_memory(r: Results) -> Path:
+    est = r.benchmarks["memory"]["full_dataset_estimate_mb"]
+    values = [est["all_cols"], est["selected_cols"], r.benchmarks["memory"]["full_parquet_loaded_optimized_mb"]]
+    fig, ax = plt.subplots(figsize=(7, 5.9))
+    bars = ax.bar(["все 151\nколонка", "только нужные\nколонки", "нужные колонки\n+ компактные типы"], values,
+                  color=[GREY, GREEN, DARK], width=0.65)
+    ax.bar_label(bars, labels=[f"{v:,.0f} МБ".replace(",", " ") for v in values], padding=4, fontsize=15)
+    ax.set_title("Память для 2,26 млн займов")
+    no_y_axis(ax)
+    return save(fig, "memory.png")
 
 
-def style_placeholder(ph, size: int, tint: str, anchor) -> None:
-    frame = ph.text_frame
-    frame.vertical_anchor = anchor
+def chart_code() -> Path:
+    """Код двух ключевых функций картинкой: моноширинный шрифт на светлом фоне шаблона, длинные строки перенесены."""
+    lines = []
+    for function in (is_matured, temporal_split):
+        source = inspect.getsource(function)
+        signature, _, rest = source.partition('"""')
+        body = [line for line in rest.split('"""', 1)[1].split("\n") if line.strip()]
+        for line in [signature.rstrip()] + body:
+            indent = " " * (len(line) - len(line.lstrip()) + 4)
+            lines += textwrap.wrap(line, width=56, subsequent_indent=indent, break_long_words=False) or [""]
+        lines.append("")
+    fig, ax = plt.subplots(figsize=(8, 5.6))
+    ax.axis("off")
+    ax.text(0.0, 0.97, "\n".join(lines).strip(), family="DejaVu Sans Mono", fontsize=15, va="top", ha="left",
+            color=DARK, transform=ax.transAxes, linespacing=1.55)
+    ax.set_title("src/features.py", fontsize=16)
+    return save(fig, "code.png", facecolor=PALE)
+
+
+def dashboard_shot() -> Path:
+    """Снимок вкладки «Скоринг заявки» без боковой панели: часть анкеты и решения двух моделей, крупно."""
+    image = Image.open(SCREENSHOTS / "dash_scoring.png")
+    width, height = image.size
+    cropped = image.crop((int(width * 0.24), int(height * 0.2), int(width * 0.72), height))
+    CHARTS.mkdir(parents=True, exist_ok=True)
+    path = CHARTS / "dashboard.png"
+    cropped.save(path)
+    return path
+
+
+def chart_grades(r: Results) -> Path:
+    grade = r.default_by_grade
+    fig, ax = plt.subplots(figsize=(7, 6))
+    bars = ax.bar(grade["grade"], grade["default_rate_pct"], color=[LIGHT, LIGHT, GREEN, GREEN, GREEN, DARK, DARK],
+                  width=0.7)
+    ax.bar_label(bars, fmt="%.0f%%", padding=3, fontsize=15)
+    ax.set(title="Не вернули, % — по грейду LendingClub", xlabel="Грейд: A — надёжный, G — рискованный")
+    no_y_axis(ax)
+    return save(fig, "grades.png")
+
+
+def chart_censoring(r: Results) -> Path:
+    v = r.vintage[r.vintage["issue_year"].between(2010, 2017)]
+    fig, ax = plt.subplots(figsize=(7, 6))
+    for term, color, label in [(36, GREEN, "займы на 3 года"), (60, DARK, "займы на 5 лет")]:
+        part = v[v["term_months"] == term]
+        ax.plot(part["issue_year"], part["default_rate_pct"], "o-", color=color, lw=3, ms=8, label=label)
+    ax.axvspan(2015.5, 2017.5, color=PALE, zorder=0)
+    ax.text(2016.5, ax.get_ylim()[0] + 0.5, "займы ещё\nне закончились", ha="center", va="bottom", color=DARK,
+            fontsize=12)
+    ax.set(title="Не вернули среди закончившихся займов, %", xlabel="Год выдачи")
+    ax.legend(frameon=False, loc="upper left")
+    return save(fig, "censoring.png")
+
+
+def chart_auc(r: Results) -> Path:
+    labels = {GRADE: "Только грейд LC", LR: "Логистическая\nрегрессия", "Neural network (MLP)": "Нейросеть",
+              "XGBoost": "XGBoost", GBM: "LightGBM (выбран)", ENS: "Ансамбль"}
+    auc = {labels[m]: r.m(m, "roc_auc") for m in labels}
+    order = sorted(auc, key=auc.get)
+    fig, ax = plt.subplots(figsize=(7, 6))
+    colors = [DARK if name.startswith("LightGBM") else (GREY if name.startswith("Только") else GREEN) for name in order]
+    bars = ax.barh(order, [auc[n] for n in order], color=colors, height=0.65)
+    ax.bar_label(bars, fmt="%.3f", padding=4, fontsize=14)
+    ax.set(title="Качество (ROC-AUC): больше — лучше", xlim=(0.6, 0.73))
+    ax.tick_params(axis="y", labelsize=14)
+    return save(fig, "auc.png")
+
+
+def chart_lift() -> Path:
+    """Фактическая дефолтность по десяти группам риска: прогноз сохранённой LightGBM на тесте 2015 года."""
+    registry = json.loads((C.MODELS / "registry.json").read_text(encoding="utf-8"))[GBM]
+    model = joblib.load(C.MODELS / registry["file"])
+    test = temporal_split(modeling_frame(load_dataset()))["test"]
+    pd_test = apply_platt(model.predict_proba(test[C.FEATURES])[:, 1], registry["platt_a"], registry["platt_b"])
+    groups = pd.qcut(pd.Series(pd_test).rank(method="first"), 10, labels=range(1, 11))
+    lift = pd.Series(test[C.TARGET].to_numpy()).groupby(groups.to_numpy()).mean() * 100
+    fig, ax = plt.subplots(figsize=(9.2, 3.6))
+    bars = ax.bar(lift.index.astype(str), lift.values, color=[LIGHT] * 4 + [GREEN] * 4 + [DARK] * 2, width=0.7)
+    ax.bar_label(bars, fmt="%.0f%%", padding=2, fontsize=12)
+    ax.axhline(test[C.TARGET].mean() * 100, color=GREY, ls="--", lw=1.5)
+    ax.set_title("Не вернули, %: 10 групп риска (1 — самые надёжные)")
+    no_y_axis(ax)
+    return save(fig, "lift.png")
+
+
+def chart_approval(r: Results) -> Path:
+    fig, ax = plt.subplots(figsize=(9.2, 3.6))
+    for model, color, label in [(GRADE, GREY, "только грейд LC"), (GBM, DARK, "LightGBM")]:
+        part = r.approval[r.approval["model"] == model]
+        ax.plot(part["approval_rate"] * 100, part["default_rate_pct"], "o-", color=color, lw=3, ms=7, label=label)
+    ax.set(title="Не вернули среди одобренных, %", xlabel="Одобряем, % самых надёжных заявок")
+    ax.legend(frameon=False, fontsize=13)
+    return save(fig, "approval.png")
+
+
+# --------------------------------------------------------------------------------------------- работа с шаблоном
+def shape(slide, name: str):
+    return next(s for s in slide.shapes if s.name == name)
+
+
+def set_text(slide, name: str, paragraphs: list, size: float | None = BODY, width: float | None = None,
+             left: float | None = None) -> None:
+    """Заменяет текст, сохраняя шрифт, цвет и выравнивание шаблона. Каждый элемент списка — отдельный абзац."""
+    box = shape(slide, name)
+    if width is not None:
+        box.width = Inches(width)
+    if left is not None:
+        box.left = Inches(left)
+    frame = box.text_frame
     frame.word_wrap = True
     body = frame._txBody
-    lst = body.find(qn("a:lstStyle"))
-    for child in list(lst):
-        lst.remove(child)
-    level = etree.SubElement(lst, qn("a:lvl1pPr"), algn="l", marL="0", indent="0")
-    etree.SubElement(level, qn("a:buNone"))
-    run = etree.SubElement(level, qn("a:defRPr"), sz=str(size * 100), b="1" if size > 20 else "0")
-    fill = etree.SubElement(run, qn("a:solidFill"))
-    etree.SubElement(fill, qn("a:srgbClr"), val=BRAND[tint])
-
-
-def add_slide_number(layout) -> None:
-    """У макета нет add_textbox в python-pptx, поэтому поле номера слайда добавляется в XML макета."""
-    left, top, width, height = SLIDE_W - Inches(1.2), SLIDE_H - Inches(0.5), Inches(0.7), Inches(0.3)
-    xml = f"""<p:sp xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"
-      xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
-      <p:nvSpPr><p:cNvPr id="99" name="Номер слайда"/><p:cNvSpPr txBox="1"/><p:nvPr userDrawn="1"/></p:nvSpPr>
-      <p:spPr><a:xfrm><a:off x="{left}" y="{top}"/><a:ext cx="{width}" cy="{height}"/></a:xfrm>
-        <a:prstGeom prst="rect"><a:avLst/></a:prstGeom><a:noFill/></p:spPr>
-      <p:txBody><a:bodyPr wrap="square" lIns="0" tIns="0" rIns="0" bIns="0"/><a:lstStyle/>
-        <a:p><a:pPr algn="r"/><a:fld id="{{B6F15528-21DE-4FAA-801E-634DDDAF4B2B}}" type="slidenum">
-          <a:rPr lang="ru-RU" sz="1100"><a:solidFill><a:srgbClr val="{BRAND['muted']}"/></a:solidFill></a:rPr>
-          <a:t>‹#›</a:t></a:fld></a:p></p:txBody></p:sp>"""
-    layout.shapes._spTree.append(etree.fromstring(xml))
-
-
-def remove_unused_layouts(prs: Presentation, keep: tuple) -> None:
-    layouts = prs.slide_master.slide_layouts
-    for layout in list(layouts):
-        if layout not in keep:
-            layouts.remove(layout)
-
-
-class Deck:
-    def __init__(self, prs: Presentation, layouts: tuple, r: Results):
-        self.prs, self.title_layout, self.content_layout, self.r = prs, layouts[0], layouts[1], r
-
-    def slide(self, title: str, notes: str):
-        s = self.prs.slides.add_slide(self.content_layout)
-        s.shapes.title.text = title
-        s.notes_slide.notes_text_frame.text = notes
-        return s
-
-    @staticmethod
-    def text(s, left, top, width, height, runs: list, size: int = 16, tint: str = "ink", bold: bool = False,
-             align=PP_ALIGN.LEFT, anchor=MSO_ANCHOR.TOP, name: str = "Текст"):
-        """runs: абзацы; абзац — строка или список пар (текст, жирный)."""
-        box = s.shapes.add_textbox(left, top, width, height)
-        box.name = name
-        frame = box.text_frame
-        frame.word_wrap = True
-        frame.vertical_anchor = anchor
-        frame.margin_left = frame.margin_right = frame.margin_top = frame.margin_bottom = 0
-        for i, paragraph in enumerate(runs):
-            para = frame.paragraphs[0] if i == 0 else frame.add_paragraph()
-            para.alignment = align
-            para.space_after = Pt(8)
-            for text, strong in ([(paragraph, bold)] if isinstance(paragraph, str) else paragraph):
-                run = para.add_run()
-                run.text = text
+    old = body.findall(f"{A}p")
+    sample = copy.deepcopy(old[0])
+    for p in old:
+        body.remove(p)
+    for text in paragraphs:
+        p = copy.deepcopy(sample)
+        runs = p.findall(f"{A}r")
+        for extra in runs[1:] + p.findall(f"{A}fld") + p.findall(f"{A}br"):
+            p.remove(extra)
+        runs[0].find(f"{A}t").text = text
+        body.append(p)
+    for i, paragraph in enumerate(frame.paragraphs):
+        if size:
+            for run in paragraph.runs:
                 run.font.size = Pt(size)
-                run.font.bold = strong
-                run.font.color.rgb = color(tint)
-        return box
-
-    @staticmethod
-    def card(s, left, top, width, height, fill: str = "tint", name: str = "Карточка"):
-        shape = s.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, left, top, width, height)
-        shape.name = name
-        shape.adjustments[0] = 0.06
-        shape.fill.solid()
-        shape.fill.fore_color.rgb = color(fill)
-        shape.line.fill.background()
-        shape.shadow.inherit = False
-        return shape
-
-    def stat(self, s, left, top, width, height, value: str, label: str, fill: str = "tint", ink: str = "pine",
-             sub: str = "ink", value_size: int = 44, label_size: int = 15) -> None:
-        self.card(s, left, top, width, height, fill, name=f"Показатель {value}")
-        pad = Inches(0.25)
-        self.text(s, left + pad, top + Inches(0.2), width - 2 * pad, Inches(0.95), [value], size=value_size, tint=ink,
-                  bold=True, anchor=MSO_ANCHOR.MIDDLE)
-        self.text(s, left + pad, top + Inches(1.2), width - 2 * pad, height - Inches(1.3), [label], size=label_size, tint=sub)
-
-    @staticmethod
-    def table(s, left, top, width, rows: list, col_widths: list, highlight: int | None = None, size: int = 14,
-              row_height: float = 0.42):
-        shape = s.shapes.add_table(len(rows), len(rows[0]), left, top, width, Inches(row_height * len(rows)))
-        shape.name = "Таблица"
-        table = shape.table
-        tbl_pr = table._tbl.tblPr
-        style = tbl_pr.find(qn("a:tableStyleId"))
-        if style is not None:
-            style.text = "{5940675A-B579-460E-94D1-54222C63F5DA}"  # без заливки, с сеткой
-        for j, w in enumerate(col_widths):
-            table.columns[j].width = Inches(w)
-        for i, row in enumerate(rows):
-            table.rows[i].height = Inches(row_height)
-            for j, value in enumerate(row):
-                cell = table.cell(i, j)
-                cell.vertical_anchor = MSO_ANCHOR.MIDDLE
-                cell.margin_left = cell.margin_right = Inches(0.08)
-                cell.margin_top = cell.margin_bottom = Inches(0.02)
-                para = cell.text_frame.paragraphs[0]
-                numeric = NUMERIC.fullmatch(str(value)) is not None
-                para.alignment = PP_ALIGN.RIGHT if numeric and j > 0 else PP_ALIGN.LEFT
-                run = para.add_run()
-                run.text = str(value)
-                run.font.size = Pt(size)
-                run.font.bold = i == 0 or i == highlight
-                run.font.color.rgb = color("white" if i == 0 else "ink")
-                cell.fill.solid()
-                cell.fill.fore_color.rgb = color("pine" if i == 0 else "mint" if i == highlight else "white")
-        return shape
+        if i > 0:
+            paragraph.space_before = Pt(12)
 
 
-def style_chart(chart, title: str | None = None, legend: bool = False, number_format: str = "0") -> None:
-    chart.font.size = Pt(13)
-    chart.font.name = BODY_FONT
-    chart.font.color.rgb = color("muted")
-    chart.has_title = bool(title)
-    if title:
-        chart.chart_title.text_frame.text = title
-        run = chart.chart_title.text_frame.paragraphs[0].runs[0]
-        run.font.size = Pt(14)
-        run.font.bold = True
-        run.font.color.rgb = color("ink")
-    chart.has_legend = legend
-    if legend:
-        chart.legend.position = XL_LEGEND_POSITION.BOTTOM
-        chart.legend.include_in_layout = False
-        chart.legend.font.size = Pt(13)
-    value_axis = chart.value_axis
-    value_axis.has_major_gridlines = True
-    value_axis.major_gridlines.format.line.color.rgb = color("line")
-    value_axis.format.line.fill.background()
-    value_axis.tick_labels.number_format = number_format
-    value_axis.tick_labels.number_format_is_linked = False
-    chart.category_axis.format.line.color.rgb = color("line")
-    chart.category_axis.has_major_gridlines = False
+def title(slide, name: str, text: str, size: float | None = None, width: float | None = None) -> None:
+    set_text(slide, name, [text], size=size, width=width)
 
 
-def color_series(series, tint: str, line: bool = False) -> None:
-    if line:
-        series.format.line.color.rgb = color(tint)
-        series.format.line.width = Pt(2.5)
-        series.smooth = False
-        series.marker.style = XL_MARKER_STYLE.CIRCLE
-        series.marker.size = 8
-        series.marker.format.fill.solid()
-        series.marker.format.fill.fore_color.rgb = color(tint)
-        series.marker.format.line.color.rgb = color(tint)
-    else:
-        series.format.fill.solid()
-        series.format.fill.fore_color.rgb = color(tint)
+def place(slide, image: Path, left, top, width, height) -> None:
+    """Вписывает картинку в рамку без искажения пропорций, по центру рамки."""
+    w, h = Image.open(image).size
+    scale = min(width / w, height / h)
+    new_w, new_h = int(w * scale), int(h * scale)
+    slide.shapes.add_picture(str(image), left + (width - new_w) // 2, top + (height - new_h) // 2, new_w, new_h)
 
 
-def add_bar(s, left, top, width, height, categories, values, tint="green", title=None, number_format="0.0",
-            name="Диаграмма"):
-    data = CategoryChartData()
-    data.categories = categories
-    data.add_series(title or "Значение", values)
-    frame = s.shapes.add_chart(XL_CHART_TYPE.COLUMN_CLUSTERED, left, top, width, height, data)
-    frame.name = name
-    chart = frame.chart
-    style_chart(chart, title, number_format=number_format)
-    plot = chart.plots[0]
-    plot.gap_width = 45
-    plot.has_data_labels = True
-    labels = plot.data_labels
-    labels.position = XL_LABEL_POSITION.OUTSIDE_END
-    labels.number_format = number_format
-    labels.number_format_is_linked = False
-    labels.font.size = Pt(13)
-    labels.font.color.rgb = color("ink")
-    color_series(plot.series[0], tint)
-    return chart
+def replace_picture(slide, name: str, image: Path) -> None:
+    """Ставит график на место картинки-заглушки шаблона."""
+    old = shape(slide, name)
+    left, top, width, height = old.left, old.top, old.width, old.height
+    old._element.getparent().remove(old._element)
+    place(slide, image, left, top, width, height)
 
 
-def add_lines(s, left, top, width, height, categories, series: dict, title=None, number_format="0", name="Диаграмма"):
-    data = CategoryChartData()
-    data.categories = categories
-    for label, (values, _) in series.items():
-        data.add_series(label, values)
-    frame = s.shapes.add_chart(XL_CHART_TYPE.LINE_MARKERS, left, top, width, height, data)
-    frame.name = name
-    chart = frame.chart
-    style_chart(chart, title, legend=True, number_format=number_format)
-    for plot_series, (_, tint) in zip(chart.plots[0].series, series.values(), strict=True):
-        color_series(plot_series, tint, line=True)
-    return chart
+def remove(slide, *names: str) -> None:
+    for name in names:
+        element = shape(slide, name)._element
+        element.getparent().remove(element)
 
 
-def s01_title(d: Deck) -> None:
-    s = d.prs.slides.add_slide(d.title_layout)
-    s.background.fill.solid()
-    s.background.fill.fore_color.rgb = color("pine")
-    s.shapes.title.text = TITLE
-    s.placeholders[1].text = f"Итоговый проект: {COURSE}\n{AUTHOR}, {GROUP}. Проект индивидуальный"
-    s.notes_slide.notes_text_frame.text = (
-        "Здравствуйте. Моя тема №33: прогноз дефолта по данным LendingClub. Задача двойная: предсказать вероятность "
-        "дефолта по данным до выдачи займа и проверить, насколько грейды LendingClub отражают реальный риск.")
+def notes(slide, text: str) -> None:
+    slide.notes_slide.notes_text_frame.text = " ".join(text.split())
 
 
-def s02_summary(d: Deck) -> None:
-    r = d.r
-    s = d.slide("Модель полезна, но главное открытие в проверке метода",
-                f"Сразу итог. Выбранная модель LightGBM даёт AUC {ru(r.m(GBM, 'roc_auc'))} на займах, которые не "
-                f"участвовали в обучении. Без отбора созревших займов получилось бы {ru(r.censored('все', GBM, 'test_auc'))}, "
-                "но эта цифра завышена: об этом отдельный слайд. И второй результат: с полями кредитного отчёта модель "
-                "на одних данных заёмщика обгоняет грейд LendingClub.")
-    w, h, top = Inches(3.85), Inches(3.3), Inches(1.7)
-    gap = (SLIDE_W - 2 * MARGIN - 3 * w) // 2
-    d.stat(s, MARGIN, top, w, h, ru(r.m(GBM, "roc_auc")),
-           f"ROC-AUC выбранной модели LightGBM на {thousands(r.metadata['test_rows'])} займах 2015 г.", "pine",
-           "white", "mint", label_size=18)
-    d.stat(s, MARGIN + w + gap, top, w, h,
-           f"−{ru(r.censored('все', GBM, 'test_auc') - r.censored('созревшие', GBM, 'test_auc'), 2)}",
-           "столько AUC оказалось завышением из-за незавершённых 60-месячных займов", label_size=18)
-    d.stat(s, MARGIN + 2 * (w + gap), top, w, h, f"{ru(r.m(GBM_B, 'roc_auc'))} > {ru(r.m(GRADE, 'roc_auc'))}",
-           "модель только на данных заёмщика сильнее одного подгрейда LendingClub", value_size=34, label_size=18)
-    d.text(s, MARGIN, Inches(5.45), SLIDE_W - 2 * MARGIN, Inches(1.2),
-           [f"При одобрении 80% заявок модель снижает дефолтность с "
-            f"{ru(r.approve(GBM, 1.0, 'default_rate_pct'), 1)}% до {ru(r.approve(GBM, 0.8, 'default_rate_pct'), 1)}%."],
-           size=20, tint="ink")
+def duplicate(prs: Presentation, index: int):
+    """Копия слайда шаблона в конец презентации: фигуры, картинки и их связи (r:embed)."""
+    source = prs.slides[index]
+    target = prs.slides.add_slide(source.slide_layout)
+    for placeholder in list(target.shapes):
+        placeholder._element.getparent().remove(placeholder._element)
+    ids = {rel_id: target.part.relate_to(rel._target, rel.reltype)
+           for rel_id, rel in source.part.rels.items() if "image" in rel.reltype or "media" in rel.reltype}
+    tree = target.shapes._spTree
+    for element in source.shapes._spTree.iterchildren():
+        if element.tag.endswith(("}sp", "}grpSp", "}pic", "}cxnSp", "}graphicFrame")):
+            clone = copy.deepcopy(element)
+            for node in clone.iter():
+                for attribute, value in list(node.attrib.items()):
+                    if attribute.endswith("}embed") and value in ids:
+                        node.attrib[attribute] = ids[value]
+            tree.append(clone)
+    background = source._element.find(f"{P}cSld").find(f"{P}bg")
+    if background is not None:
+        target._element.find(f"{P}cSld").insert(0, copy.deepcopy(background))
+    return target
 
 
-def s03_data(d: Deck) -> None:
-    r = d.r
-    raw = r.audit["raw_columns"]
-    s = d.slide(f"Данные: 2,26 млн займов и всего {raw['kept_columns']} полезных колонок",
-                "Данные с Kaggle. Из 151 колонки 57 пропущены более чем наполовину, ещё 18 известны только после выдачи: "
-                "использовать их значит подсмотреть ответ. Аудит нашёл 33 служебные строки, некорректные доходы и DTI, "
-                "дубликатов нет. Значения заменяются пропуском, строки не удаляются.")
-    w = Inches(2.85)
-    gap = (SLIDE_W - 2 * MARGIN - 4 * w) // 3
-    for i, (value, label) in enumerate([
-        (f"{ru(r.ingest['rows'] / 1e6, 2)} млн", "займов, 2007–2018"),
-        (str(raw["n_columns"]), "колонка в файле"),
-        (str(raw["columns_over_50pct_missing"]), "колонок пропущены более чем на 50%"),
-        (str(len(raw["known_leakage_columns_excluded"])), "колонок известны только после выдачи"),
-    ]):
-        d.stat(s, MARGIN + i * (w + gap), Inches(1.6), w, Inches(2.4), value, label)
-    invalid = r.audit["invalid_values"]
-    keys = list(invalid)
-    d.table(s, MARGIN, Inches(4.35), Inches(12.1), [
-        ["Аудит качества", "Строк", "Решение"],
-        ["Служебные строки-итоги", r.audit["summary_lines_removed"], "удалены"],
-        ["Дубликаты id", r.audit["duplicate_ids"], "нет"],
-        [f"{keys[0]};  {keys[1]};  {keys[2]}", f"{thousands(invalid[keys[0]] + invalid[keys[1]] + invalid[keys[2]])}",
-         "заменены на пропуск"],
-        ["Пропуски: emp_length, mort_acc", f"{ru(r.audit['missing_pct']['emp_length'], 1)}%, "
-         f"{ru(r.audit['missing_pct']['mort_acc'], 1)}%", "медиана или мода по train"],
-    ], [6.6, 2.0, 3.5], row_height=0.44)
+def reorder(prs: Presentation, order: list) -> None:
+    ids = prs.slides._sldIdLst
+    items = list(ids)
+    for element in items:
+        ids.remove(element)
+    for index in order:
+        ids.append(items[index])
 
 
-def s04_volume(d: Deck) -> None:
-    r = d.r
-    b = r.benchmarks
-    mem = b["memory"]
-    est = mem["full_dataset_estimate_mb"]
-    csv, pq = b["csv_vs_parquet"]["csv_gz"], b["csv_vs_parquet"]["parquet"]
-    pd_run, sql = b["pandas_vs_sql"]["pandas_parquet"], b["pandas_vs_sql"]["sqlite"]
-    kept = r.audit["raw_columns"]["kept_columns"]
-    s = d.slide(f"Отбор колонок и типов сократил память в {ru(est['all_cols'] / mem['full_parquet_loaded_optimized_mb'], 0)} раз",
-                "Чтение чанками, запись в Parquet, типы category и float32. Первая цифра оценена масштабированием с 200 "
-                "тысяч строк, последняя измерена. Сравнение Pandas и SQLite: по времени выигрывает Pandas, по памяти "
-                "SQLite. В ранней версии я считал SQLite быстрее, но это был артефакт tracemalloc. Каждый замер теперь "
-                "идёт в отдельном процессе, берётся медиана трёх.")
-    add_bar(s, MARGIN, Inches(1.5), Inches(5.6), Inches(5.3),
-            ["Все 151 колонка", f"{kept} колонок", f"{kept} колонок + типы"],
-            [est["all_cols"], est["selected_cols"], mem["full_parquet_loaded_optimized_mb"]],
-            tint="green", title="Память для всего набора, МБ", number_format="#,##0", name="Память по вариантам")
-    d.table(s, Inches(6.6), Inches(1.7), Inches(6.1), [
-        ["Задача", "Время, с", "Память, МБ"],
-        ["CSV.gz: чтение 6 колонок", ru(csv["seconds"], 1), ru(csv["peak_mb"], 0)],
-        ["Parquet: чтение 6 колонок", ru(pq["seconds"], 1), ru(pq["peak_mb"], 0)],
-        ["Pandas: агрегация", ru(pd_run["seconds"], 1), ru(pd_run["peak_mb"], 0)],
-        ["SQLite: агрегация", ru(sql["seconds"], 1), ru(sql["peak_mb"], 0)],
-    ], [3.5, 1.2, 1.4], row_height=0.5)
-    d.text(s, Inches(6.6), Inches(4.5), Inches(6.1), Inches(2.1),
-           [[("Выбор: ", True), ("Parquet как рабочий формат, Pandas для аналитики и обучения, "
-                                 "SQLite для нормализованного хранения и запросов.", False)],
-            f"Размер файла: {ru(csv['file_mb'], 0)} МБ в CSV.gz против {ru(pq['file_mb'], 0)} МБ в Parquet."],
-           size=16)
+# --------------------------------------------------------------------------------------------- слайды
+def build() -> Path:
+    if not TEMPLATE.exists():
+        raise FileNotFoundError("Нет template.pptx: скачайте шаблон из Canva в формате PowerPoint в корень проекта.")
+    r = load()
+    prs = Presentation(str(TEMPLATE))
+    # Копии макетов шаблона для новых слайдов (до любых изменений): 13 — код, 14 — база, 15 — EDA, 16 — дашборд
+    for index in (3, 5, 9, 3):
+        duplicate(prs, index)
+    s = prs.slides
+    gbm_auc, grade_auc = r.m(GBM, "roc_auc"), r.m(GRADE, "roc_auc")
+    vintage = r.vintage.set_index(["issue_year", "term_months"])["default_rate_pct"]
+    est = r.benchmarks["memory"]["full_dataset_estimate_mb"]
+    loaded = r.benchmarks["memory"]["full_parquet_loaded_optimized_mb"]
+    csv, pq = r.benchmarks["csv_vs_parquet"]["csv_gz"], r.benchmarks["csv_vs_parquet"]["parquet"]
+    pd_run, sql = r.benchmarks["pandas_vs_sql"]["pandas_parquet"], r.benchmarks["pandas_vs_sql"]["sqlite"]
+    approve_all, approve_80 = r.approve(GBM, 1.0, "default_rate_pct"), r.approve(GBM, 0.8, "default_rate_pct")
+    grade = r.default_by_grade.set_index("grade")["default_rate_pct"]
 
+    # Титульный
+    set_text(s[0], "TextBox 20", ["ПРОГНОЗ ДЕФОЛТА", "LENDINGCLUB"], size=50)
+    shape(s[0], "TextBox 20").top = Inches(3.55)
+    set_text(s[0], "TextBox 21", [f"{AUTHOR} · {GROUP}"], size=24)
+    notes(s[0], """Здравствуйте. Мой проект — прогноз дефолта по займам платформы LendingClub, тема 33.""")
 
-def s05_sql(d: Deck) -> None:
-    s = d.slide("Нормализованная база и 10 запросов SQL",
-                "Семь таблиц: четыре справочника, условия займа, профиль заёмщика и исход. Поля исхода вынесены отдельно, "
-                "и это ещё одна защита от утечки. Запросов десять, среди них JOIN, HAVING, CTE, RANK, LAG, NTILE и "
-                "скользящее среднее. Результаты загружаются в Pandas и идут в графики.")
-    image = s.shapes.add_picture(str(ROOT / "docs" / "er_diagram.png"), MARGIN, Inches(1.35), height=Inches(5.75))
-    image.name = "ER-диаграмма базы данных"
-    left = image.left + image.width + Inches(0.5)
-    width = SLIDE_W - left - MARGIN
-    d.table(s, left, Inches(1.6), width, [
-        ["Приём", "Запрос"],
-        ["JOIN, GROUP BY", "дефолт по грейдам"],
-        ["HAVING", "цели от 5000 займов"],
-        ["CTE, RANK()", "рейтинг штатов"],
-        ["AVG() OVER", "скользящее среднее"],
-        ["LAG()", "прирост год к году"],
-        ["NTILE()", "децили DTI"],
-        ["Подзапрос", "доход и подгрейд"],
-        ["CASE", "FICO и тип жилья"],
-    ], [Emu(int(width * 0.42)) / 914400, Emu(int(width * 0.58)) / 914400], row_height=0.46, size=15)
+    # Задача (шаблон: слайд 3)
+    title(s[2], "TextBox 10", "Задача")
+    set_text(s[2], "TextBox 6", ["Кредитор получает заявку и решает: дать деньги или нет.",
+                                 "Каждый седьмой заём на LendingClub так и не вернули."], size=28)
+    set_text(s[2], "TextBox 11", ["Модель по анкете оценивает шанс, что человек не вернёт долг.",
+                                  "Она видит только то, что известно в день заявки."], size=28)
+    notes(s[2], """Представим, что мы кредитор: пришла заявка, нужно решить, давать ли деньги. Модель оценивает
+              вероятность дефолта — шанс, что заёмщик не вернёт долг. Вторая цель — проверить, насколько хорошо риск
+              оценивает сам LendingClub своими грейдами от A до G.""")
 
+    # Данные (шаблон: слайд 2)
+    title(s[1], "TextBox 9", "Данные")
+    facts = [f"{ru(r.ingest['rows'] / 1e6, 2)} млн займов", "2007–2018 годы", "151 колонка",
+             f"{ru(100 * r.m(GBM, 'actual_default_rate'), 0)}% не вернули"]
+    for name, fact in zip(["TextBox 10", "TextBox 11", "TextBox 12", "TextBox 13"], facts, strict=True):
+        set_text(s[1], name, [fact], size=30, width=5.4, left=11.65)
+    notes(s[1], f"""Набор All Lending Club loan data с Kaggle, ссылка из задания. Для модели берём займы, срок которых
+              уже истёк: {thousands(r.metadata['train_rows'])} для обучения и {thousands(r.metadata['test_rows'])}
+              для итоговой проверки.""")
 
-def s06_eda(d: Deck) -> None:
-    r = d.r
-    g = r.default_by_grade
-    dti = r.dti.set_index("dti_decile")
-    income = r.income.set_index(["grade", "income_group"])
-    s = d.slide("Грейд хорошо упорядочивает риск, но не исчерпывает его",
-                "Дефолтность монотонно растёт от грейда A к G. Но внутри грейда доход всё ещё различает заёмщиков: в грейде "
-                "C разница около 4 процентных пунктов. Значит, в данных есть сигнал, который грейд не учёл, поэтому "
-                "модель имеет смысл.")
-    add_bar(s, MARGIN, Inches(1.5), Inches(7.6), Inches(5.3), list(g["grade"]), list(g["default_rate_pct"]),
-            title="Дефолтность по грейду, % (созревшие займы)", name="Дефолтность по грейдам")
-    x, w = Inches(8.6), Inches(4.1)
-    d.stat(s, x, Inches(1.6), w, Inches(2.45),
-           f"{ru(income.loc[('C', 'above_avg'), 'default_rate_pct'], 1)} и {ru(income.loc[('C', 'below_avg'), 'default_rate_pct'], 1)}%",
-           "дефолт в грейде C при доходе выше и ниже среднего по подгрейду")
-    d.stat(s, x, Inches(4.25), w, Inches(2.45),
-           f"{ru(dti.loc[1, 'default_rate_pct'], 1)} и {ru(dti.loc[10, 'default_rate_pct'], 1)}%",
-           "дефолт в нижнем и верхнем дециле долговой нагрузки DTI")
+    # Обработка данных (шаблон: слайд 4)
+    title(s[3], "TextBox 5", "Обработка данных")
+    set_text(s[3], "TextBox 6", [
+        f"Файл большой: целиком занял бы {ru(est['all_cols'] / 1000, 1)} ГБ памяти.",
+        f"Читаем по частям и храним компактно — {ru(loaded, 0)} МБ.",
+        f"Формат Parquet читается в {ru(csv['seconds'] / pq['seconds'], 0)} раз быстрее CSV.",
+        "Проверили данные на ошибки и пропуски."], size=26)
+    replace_picture(s[3], "Picture 7", chart_memory(r))
+    notes(s[3], """Файл целиком занял бы около 3 ГБ памяти. Читаем его частями по 250 тысяч строк, оставляем нужные
+              колонки, текст храним как category, числа как float32 и сохраняем в Parquet. Аудит нашёл ошибки вроде
+              нулевого дохода и подтвердил, что данные кредитного отчёта сняты в день заявки.""")
 
+    # Как устроен проект (шаблон: слайд 5)
+    title(s[4], "TextBox 9", "Как устроен проект", size=44, width=8.3)
+    set_text(s[4], "TextBox 6", ["1. Данные", "чтение, проверка, база SQL"], size=26)
+    set_text(s[4], "TextBox 7", ["2. Анализ", "14 графиков: от чего зависит риск"], size=26)
+    set_text(s[4], "TextBox 8", ["3. Модели", "9 моделей, обучение и проверка"], size=26)
+    notes(s[4], """Проект — конвейер из восьми шагов. Каждый шаг — пункт консольного меню main.py и раздел ноутбука
+              project_walkthrough.ipynb, главного файла для чтения.""")
 
-def s07_censoring(d: Deck) -> None:
-    r = d.r
-    v = r.vintage[r.vintage["issue_year"].between(2011, 2017)]
-    t36, t60 = v[v["term_months"] == 36], v[v["term_months"] == 60]
-    by_cohort = r.vintage.set_index(["issue_year", "term_months"])["default_rate_pct"]
-    s = d.slide("Ловушка: незавершённые займы завышают результат",
-                "Главная находка. Займ на 60 месяцев, выданный в 2015 году, к концу данных ещё не истёк. Завершены только "
-                f"досрочно погашенные и уже списанные, поэтому дефолтность среди них {ru(by_cohort[(2015, 60)], 0)}%, а у "
-                f"полностью созревшей когорты 2013 года {ru(by_cohort[(2013, 60)], 0)}%. Истинное значение для 2015 года "
-                "неизвестно. Модель выучивает срок как искусственно сильный признак. Исправление: берём только займы, срок "
-                f"которых истёк к декабрю 2018. AUC падает с {ru(r.censored('все', GBM, 'test_auc'))} до "
-                f"{ru(r.censored('созревшие', GBM, 'test_auc'))}, зато эта цифра честная. Цена: тест содержит только 36 месяцев.")
-    add_lines(s, MARGIN, Inches(1.5), Inches(7.6), Inches(5.3), [str(y) for y in t36["issue_year"]],
-              {"36 месяцев": (list(t36["default_rate_pct"]), "green"), "60 месяцев": (list(t60["default_rate_pct"]), "rust")},
-              title="Дефолтность среди завершённых займов, %", name="Смещение дефолтности по годам")
-    x, w = Inches(8.6), Inches(4.1)
-    d.table(s, x, Inches(1.65), w, [
-        ["Когорта LightGBM", "AUC"],
-        ["Все завершённые", ru(r.censored("все", GBM, "test_auc"))],
-        ["Они же, только 36 мес.", ru(r.censored("все", GBM, "auc_36m"))],
-        ["Созревшие (итог)", ru(r.censored("созревшие", GBM, "test_auc"))],
-    ], [3.1, 1.0], highlight=3, row_height=0.5, size=15)
-    d.text(s, x, Inches(4.0), w, Inches(2.8),
-           [[("Правило: ", True), ("срок займа истёк к декабрю 2018 г.", False)],
-            [("Цена: ", True), ("тест содержит только займы на 36 месяцев.", False)]], size=18)
+    # Код (копия слайда 4)
+    title(s[13], "TextBox 5", "Код")
+    set_text(s[13], "TextBox 6", [
+        "12 модулей: по одному на каждый шаг.",
+        "main.py — меню в консоли.",
+        "app.py — веб-дашборд.",
+        "115 автотестов проверяют, что всё работает."], size=26)
+    replace_picture(s[13], "Picture 7", chart_code())
+    notes(s[13], """Слева — две ключевые функции. is_matured оставляет займы, срок которых уже истёк. temporal_split
+              делит данные по годам без перемешивания. Тесты проверяют, что в модель не попали данные из будущего,
+              что SQL и Pandas считают одинаково и что меню работает.""")
 
+    # База и SQL (копия слайда 6)
+    title(s[14], "TextBox 5", "База данных и SQL")
+    set_text(s[14], "TextBox 6", [
+        "Данные разложены по 7 связанным таблицам.",
+        "10 SQL-запросов отвечают на вопросы о риске.",
+        "SQL экономит память, Pandas считает быстрее."], size=26)
+    replace_picture(s[14], "Picture 7", ROOT / "docs" / "er_diagram.png")
+    notes(s[14], f"""Справочники отдельно, займы отдельно, исход займа — в своей таблице, чтобы его нельзя было
+              случайно взять в признаки. В запросах есть JOIN, HAVING, CTE, подзапрос и оконные функции. Сравнение:
+              Pandas считает в {ru(sql['seconds'] / pd_run['seconds'], 1)} раза быстрее, а SQLite тратит
+              {ru(sql['peak_mb'], 0)} МБ памяти против {ru(pd_run['peak_mb'], 0)}.""")
 
-def s08_method(d: Deck) -> None:
-    r = d.r
-    s = d.slide("Методика: разбиение по времени и без утечки",
-                "Разбиение только по времени. Порог и калибровка подбираются на 2014 годе на модели, обученной до 2013. "
-                "Правило выбора задано заранее и применяется к валидации. Тест используется один раз. Поля, известные "
-                "только после выдачи, исключены, и это проверяет автоматический тест. Для полей кредитного отчёта "
-                "аудит проверяет, что они не обновлялись после выдачи. Поля, назначенные LendingClub, вынесены в "
-                "отдельный вариант модели, потому что тема требует полей на момент заявки.")
-    windows = [("fit", "2007–2013", "обучение для подбора", "mint", "ink"),
-               ("valid", "2014, 36 мес.", "порог, калибровка, выбор", "green", "white"),
-               ("test", "2015, 36 мес.", f"{thousands(r.metadata['test_rows'])} займов, только оценка", "pine", "white")]
-    w = Inches(3.85)
-    gap = (SLIDE_W - 2 * MARGIN - 3 * w) // 2
-    for i, (name, years, role, fill, ink) in enumerate(windows):
-        left = MARGIN + i * (w + gap)
-        d.card(s, left, Inches(1.55), w, Inches(1.55), fill, name=f"Окно {name}")
-        d.text(s, left + Inches(0.25), Inches(1.68), w - Inches(0.5), Inches(0.55), [f"{name}: {years}"], size=20, tint=ink,
-               bold=True)
-        d.text(s, left + Inches(0.25), Inches(2.3), w - Inches(0.5), Inches(0.7), [role], size=16, tint=ink)
-    d.text(s, MARGIN, Inches(3.2), SLIDE_W - 2 * MARGIN, Inches(0.4),
-           [f"Финальная модель обучена на 2007–2014: {thousands(r.metadata['train_rows'])} займов. "
-            "Гиперпараметры подбираются на 2007–2013 (TimeSeriesSplit), без 2014 года."], size=16, tint="muted")
-    half = (SLIDE_W - 2 * MARGIN - Inches(0.4)) // 2
-    for i, (head, items) in enumerate([
-        ("Без утечки", ["только поля, известные до выдачи", "поля кредитного отчёта проверены аудитом",
-                        "total_pymnt только для оценки портфеля", "предобработка обучается внутри Pipeline"]),
-        ("Два набора признаков", [f"все поля, {r.feature_count} признака, из них 16 из кредитного отчёта",
-                                  "только поля заёмщика: без grade, sub_grade, int_rate, "
-                                  "installment, verification_status и др."]),
-    ]):
-        left = MARGIN + i * (half + Inches(0.4))
-        d.card(s, left, Inches(3.85), half, Inches(2.95), name=head)
-        d.text(s, left + Inches(0.3), Inches(4.05), half - Inches(0.6), Inches(0.5), [head], size=20, tint="pine", bold=True)
-        d.text(s, left + Inches(0.3), Inches(4.65), half - Inches(0.6), Inches(2.0), items, size=18)
+    # Разведочный анализ (копия слайда 10)
+    title(s[15], "TextBox 9", "Анализ данных")
+    set_text(s[15], "TextBox 10", [
+        f"Грейд LendingClub работает: в группе A не вернули {ru(grade['A'], 0)}%, в группе G — {ru(grade['G'], 0)}%.",
+        "Риск выше у займов на 5 лет, у арендаторов и при низком кредитном рейтинге.",
+        "Один признак ничего не решает — нужна модель."], size=26)
+    replace_picture(s[15], "Picture 8", chart_grades(r))
+    notes(s[15], """В ноутбуке 14 графиков. Главное: грейд LendingClub хорошо упорядочивает риск, но внутри грейда
+              доход и другие признаки всё ещё различают заёмщиков, значит, модели есть что добавить.""")
 
+    # Главная находка (шаблон: слайд 6)
+    title(s[5], "TextBox 5", "Главная находка")
+    set_text(s[5], "TextBox 6", [
+        "Займы последних лет ещё не закончились.",
+        "Успели закончиться в основном неудачные, поэтому невозвратов кажется больше.",
+        "Решение: учим модель только на займах, срок которых уже истёк."], size=26)
+    replace_picture(s[5], "Picture 7", chart_censoring(r))
+    notes(s[5], f"""Это главный результат проверки метода. У займов на 5 лет, выданных в 2015 году, не вернули
+              {ru(vintage[(2015, 60)], 0)}% среди закончившихся, а у полностью закончившихся займов 2013 года —
+              {ru(vintage[(2013, 60)], 0)}%. Если этого не учесть, модель выглядит лучше, чем есть:
+              {ru(r.censored('все', GBM, 'test_auc'))} вместо {ru(gbm_auc)}.""")
 
-def s09_models(d: Deck) -> None:
-    r = d.r
-    labels = {"Dummy (prior)": "Dummy", GRADE: "Только подгрейд", LR: "Logistic Regression", GBM: "LightGBM, выбран",
-              "XGBoost": "XGBoost", "Neural network (MLP)": "Нейросеть (MLP)",
-              "Ensemble (LightGBM + XGBoost + MLP)": "Ансамбль: LGBM + XGB + MLP",
-              "Logistic Regression (borrower only)": "LogReg, поля заёмщика", GBM_B: "LightGBM, поля заёмщика"}
-    ens = "Ensemble (LightGBM + XGBoost + MLP)"
-    order = list(labels)
-    rows = [["Модель", "Valid AUC", "Test AUC", "Gini", "KS", "Brier", "ECE", "Обучение, с", "Размер, МБ"]]
-    for m in order:
-        rows.append([labels[m], ru(r.m(m, "valid_auc")), ru(r.m(m, "roc_auc")), ru(r.m(m, "gini")), ru(r.m(m, "ks")),
-                     ru(r.m(m, "brier"), 4), ru(r.m(m, "ece"), 4), ru(r.m(m, "fit_seconds"), 1), ru(r.m(m, "model_mb"), 2)])
-    gap = r.m(GBM, "valid_auc") - r.m(LR, "valid_auc")
-    s = d.slide("LightGBM выбран по правилу, заданному заранее",
-                "Сравнение с двумя базовыми вариантами на одном тесте. Правило задано заранее: лучшая AUC на валидации, но "
-                f"логистическая регрессия предпочитается при отставании менее 0,005. Отставание {ru(gap)} больше запаса, "
-                f"поэтому выбран LightGBM. На тесте он лучше на {ru(r.m(GBM, 'roc_auc') - r.m(LR, 'roc_auc'))}. Цена выбора: "
-                "модель крупнее и объясняется через SHAP, а не через коэффициенты, поэтому логистическая регрессия остаётся "
-                "простой альтернативой. XGBoost, нейросеть и ансамбль взяты из решений на Kaggle; ансамбль лучше на "
-                f"валидации лишь на {ru(r.m(ens, 'valid_auc') - r.m(GBM, 'valid_auc'), 4)}, это шум, и выбор не меняется. "
-                "Калибровка снижает ECE почти вдвое и не меняет порядок заёмщиков.")
-    d.table(s, MARGIN, Inches(1.3), Inches(12.1), rows, [3.9, 1.0, 1.0, 0.9, 0.9, 1.05, 1.05, 1.2, 1.1], highlight=4,
-            size=12, row_height=0.4)
-    d.text(s, MARGIN, Inches(5.55), Inches(12.1), Inches(1.4),
-           [[("Правило, заданное заранее: ", True),
-             ("лучшая AUC на валидации, но логистическая регрессия при отставании менее 0,005. "
-              f"Отставание {ru(gap)}: выбран LightGBM.", False)],
-            [("Калибровка Платта на 2014 годе: ", True),
-             (f"ECE LightGBM {ru(r.m(GBM, 'ece_raw'), 4)} → {ru(r.m(GBM, 'ece'), 4)}, AUC не меняется.", False)],
-            [("Претенденты: ", True),
-             (f"ансамбль лучше LightGBM на валидации на {ru(r.m(ens, 'valid_auc') - r.m(GBM, 'valid_auc'), 4)}, "
-              "меньше запаса 0,005: выбор не меняется.", False)]],
-           size=15)
+    # Честная оценка (шаблон: слайд 7)
+    title(s[6], "TextBox 9", "Честная оценка")
+    set_text(s[6], "TextBox 10", ["Модель видит только данные на день заявки: 43 признака."], size=27)
+    set_text(s[6], "TextBox 11", ["Данные «из будущего» дали бы 0,9, но это обман. Их нет."], size=27)
+    notes(s[6], """Утечка данных — главная ловушка этой задачи. Например, кредитный рейтинг после выдачи один даёт
+              качество 0,94: у тех, кто перестал платить, он падает. Но в день заявки его ещё нет. Автоматический
+              тест проверяет, что таких полей среди признаков нет.""")
 
+    # Обучение и проверка по времени (шаблон: слайд 8)
+    title(s[7], "TextBox 10", "Учимся на прошлом", size=40, width=7.3)
+    for label_box, text_box, label, text in [
+        ("TextBox 15", "TextBox 11", "1", "2007–2013: подбираем настройки"),
+        ("TextBox 20", "TextBox 16", "2", "2014: выбираем лучшую модель"),
+        ("TextBox 25", "TextBox 21", "3", "2007–2014: обучаем итоговую"),
+        ("TextBox 30", "TextBox 26", "4", "2015: финальная проверка, один раз"),
+    ]:
+        set_text(s[7], label_box, [label], size=26)
+        set_text(s[7], text_box, [text], size=26)
+    notes(s[7], """Модель учится на прошлом и проверяется на будущем, как в реальном банке. Если перемешать займы
+              случайно, модель увидела бы займы того года, на котором её проверяют, и оценка была бы нечестной.""")
 
-def s10_grade(d: Deck) -> None:
-    r = d.r
-    rec = r.recovery
-    s = d.slide("Данные заёмщика воспроизводят грейд и превосходят его",
-                "Ответ на вопрос темы об оценке риска по грейду. С полями кредитного отчёта LightGBM только на данных "
-                f"заёмщика даёт {ru(r.m(GBM_B, 'roc_auc'))}, больше одного подгрейда ({ru(r.m(GRADE, 'roc_auc'))}). На одних "
-                "полях анкеты было наоборот: именно сведения кредитного отчёта объясняют, из чего складывается грейд. "
-                f"Грейд и ставка всё же добавляют {ru(r.m(GBM, 'roc_auc') - r.m(GBM_B, 'roc_auc'))} AUC. Модель без грейда "
-                "сжимает риск по краям: завышает PD в грейде A и занижает в F и G.")
-    data = CategoryChartData()
-    data.categories = list(rec["grade"])
-    data.add_series("Факт", list(rec["actual_default_pct"]))
-    data.add_series("PD, поля заёмщика", list(rec["borrower_pd_pct"]))
-    data.add_series("PD, все поля", list(rec["full_pd_pct"]))
-    frame = s.shapes.add_chart(XL_CHART_TYPE.COLUMN_CLUSTERED, MARGIN, Inches(1.5), Inches(8.0), Inches(5.3), data)
-    frame.name = "Фактический дефолт и прогноз по грейдам"
-    chart = frame.chart
-    style_chart(chart, "Дефолтность и средняя PD на тесте, %", legend=True)
-    chart.plots[0].gap_width = 60
-    chart.plots[0].overlap = -5
-    for series, tint in zip(chart.plots[0].series, ["pine", "amber", "green"], strict=True):
-        color_series(series, tint)
-    x, w = Inches(9.0), Inches(3.75)
-    d.table(s, x, Inches(1.65), w, [
-        ["Test AUC", ""],
-        ["Только подгрейд", ru(r.m(GRADE, "roc_auc"))],
-        ["LightGBM, поля заёмщика", ru(r.m(GBM_B, "roc_auc"))],
-        ["LightGBM, все поля", ru(r.m(GBM, "roc_auc"))],
-    ], [2.85, 0.9], row_height=0.5, size=15)
-    d.text(s, x, Inches(4.0), w, Inches(2.8),
-           [f"Поля LendingClub добавляют {ru(r.m(GBM, 'roc_auc') - r.m(GBM_B, 'roc_auc'))} AUC.",
-            f"Модель на данных заёмщика сильнее подгрейда на {ru(r.m(GBM_B, 'roc_auc') - r.m(GRADE, 'roc_auc'))} AUC.",
-            f"Главные признаки без грейда: {', '.join(r.shap_borrower['feature'].head(3))}."], size=17)
+    # Модели (шаблон: слайд 9)
+    title(s[8], "TextBox 9", "Модели")
+    set_text(s[8], "TextBox 16", ["Для сравнения: «угадывание» и оценка самого LendingClub"], size=25)
+    set_text(s[8], "TextBox 17", ["Пять моделей: от простой регрессии до нейросети"], size=25)
+    set_text(s[8], "TextBox 18", ["Лучшую выбираем по правилу, заданному заранее"], size=25)
+    notes(s[8], """Девять моделей. Две — точки отсчёта: если сложная модель их не обгоняет, она бесполезна. Качество
+              меряем ROC-AUC: насколько хорошо модель отличает рискованных от надёжных. Долю верных ответов не берём:
+              модель «все вернут» права в 85% случаев, но не находит ни одного невозврата.""")
 
+    # Результат (шаблон: слайд 10)
+    title(s[9], "TextBox 9", "Результат")
+    set_text(s[9], "TextBox 10", [
+        "Лучшая модель — LightGBM.",
+        f"Качество {ru(gbm_auc)}: 0,5 — угадывание, 1 — идеал. У LendingClub — {ru(grade_auc)}.",
+        f"Находит {ru(100 * r.m(GBM, 'recall'), 0)}% будущих невозвратов.",
+        "Более сложные модели не помогли: это предел данных."], size=26)
+    replace_picture(s[9], "Picture 8", chart_auc(r))
+    notes(s[9], f"""Выбрана LightGBM: на проверке 2014 года она лучше логистической регрессии на
+              {ru(r.m(GBM, 'valid_auc') - r.m(LR, 'valid_auc'))}. Сильные модели сошлись около 0,70 — это предел
+              данных без подсматривания. Прогнозу можно верить: в среднем модель ждёт
+              {ru(100 * r.m(GBM, 'mean_pd'), 1)}% невозвратов, на деле — {ru(100 * r.m(GBM, 'actual_default_rate'), 1)}%.""")
 
-def s11_policy(d: Deck) -> None:
-    r = d.r
-    rates = [0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
-    errors = r.errors.set_index("grade")
-    s = d.slide("Для решений нужна таблица одобрения",
-                f"Единый порог F1 работает как граница по грейду: в грейде A пропускается "
-                f"{ru(errors.loc['A', 'missed_defaults_pct'], 0)}% дефолтов, в F ложно отклоняется "
-                f"{ru(errors.loc['F', 'false_alarms_pct'], 0)}% хороших заёмщиков. Поэтому показываю другое: если одобрить "
-                "заданную долю заявок с наименьшей PD, какая будет дефолтность. Доходность здесь номинальная, за весь срок, "
-                "без стоимости фондирования, так что это сравнение моделей, а не прогноз прибыли.")
-    chart = add_lines(s, MARGIN, Inches(1.5), Inches(7.6), Inches(5.3), [f"{int(x * 100)}%" for x in rates],
-                      {"Только подгрейд": ([r.approve(GRADE, x, "default_rate_pct") for x in rates], "amber"),
-                       "Logistic Regression": ([r.approve(LR, x, "default_rate_pct") for x in rates], "pine"),
-                       "LightGBM": ([r.approve(GBM, x, "default_rate_pct") for x in rates], "rust")},
-                      title="Дефолтность одобренного портфеля, %, по доле одобрения",
-                      name="Дефолтность по доле одобрения")
-    chart.value_axis.minimum_scale = 6
-    chart.value_axis.maximum_scale = 16
-    x, w = Inches(8.6), Inches(4.1)
-    d.table(s, x, Inches(1.65), w, [
-        ["Одобрено 80%", "Дефолт", "Возврат"],
-        ["Только подгрейд", f"{ru(r.approve(GRADE, 0.8, 'default_rate_pct'), 1)}%", f"{ru(r.approve(GRADE, 0.8, 'net_return_pct'), 1)}%"],
-        ["Logistic Regression", f"{ru(r.approve(LR, 0.8, 'default_rate_pct'), 1)}%", f"{ru(r.approve(LR, 0.8, 'net_return_pct'), 1)}%"],
-        ["LightGBM", f"{ru(r.approve(GBM, 0.8, 'default_rate_pct'), 1)}%", f"{ru(r.approve(GBM, 0.8, 'net_return_pct'), 1)}%"],
-        ["Одобрить всех", f"{ru(r.approve(GBM, 1.0, 'default_rate_pct'), 1)}%", f"{ru(r.approve(GBM, 1.0, 'net_return_pct'), 1)}%"],
-    ], [2.2, 0.95, 0.95], highlight=3, row_height=0.5, size=14)
-    d.text(s, x, Inches(4.5), w, Inches(2.3),
-           ["Возврат номинальный: за весь срок, без стоимости фондирования.",
-            f"Единый порог F1: в грейде A пропускает {ru(errors.loc['A', 'missed_defaults_pct'], 0)}% дефолтов."],
-           size=16)
+    # Для кредитора (шаблон: слайд 12)
+    title(s[11], "TextBox 18", "Для кредитора")
+    remove(s[11], "Group 5", "Group 7", "Group 9", "Group 11")
+    place(s[11], chart_lift(), Inches(8.6), Inches(1.5), Inches(9.8), Inches(4.0))
+    place(s[11], chart_approval(r), Inches(8.6), Inches(5.6), Inches(9.8), Inches(4.0))
+    notes(s[11], f"""Как модель помогает на практике. Сверху: делим заёмщиков на 10 групп по прогнозу — в самой
+              надёжной не вернули около 3%, в самой рискованной около 34%. Снизу: если одобрять 80% самых надёжных
+              заявок, невозвратов становится {ru(approve_80, 1)}% вместо {ru(approve_all, 1)}%.""")
 
+    # Дашборд Streamlit (копия слайда 4)
+    title(s[16], "TextBox 5", "Дашборд")
+    set_text(s[16], "TextBox 6", [
+        "Запуск: streamlit run app.py",
+        "Вводим анкету — сразу видим риск и решение.",
+        "Графики с фильтрами и сравнение моделей."], size=26)
+    replace_picture(s[16], "Picture 7", dashboard_shot())
+    notes(s[16], """Интерфейс проекта — консольное меню main.py и дашборд Streamlit с четырьмя вкладками. Он работает
+              сразу после клонирования. На скриншоте пограничный заёмщик: LightGBM одобряет, логистическая регрессия
+              отказывает. Сейчас покажу дашборд вживую.""")
 
-def s12_close(d: Deck) -> None:
-    s = d.prs.slides.add_slide(d.content_layout)
-    s.background.fill.solid()
-    s.background.fill.fore_color.rgb = color("pine")
-    s.shapes.title.text = "Выводы и ограничения"
-    s.shapes.title.text_frame.paragraphs[0].runs[0].font.color.rgb = color("white")
-    s.notes_slide.notes_text_frame.text = (
-        "Итоги. Проверка метода дала больше, чем усложнение модели. Ограничения называю сам: тест только на 36 месяцев, "
-        "обучающие метки 2013–2014 годов на начало 2015 ещё не были полностью известны, нет отклонённых заявок. Проект "
-        f"запускается из README, демо-выборка работает без загрузки данных, {TEST_COUNT} тестов, покрытие {COVERAGE_PCT}%. "
-        "Использовал ИИ-ассистента "
-        "Claude Code, это указано в отчёте. Покажу дашборд и готов ответить на вопросы.")
-    half = (SLIDE_W - 2 * MARGIN - Inches(0.4)) // 2
-    d.text(s, MARGIN, Inches(1.5), half, Inches(0.5), ["Выводы"], size=22, tint="amber", bold=True)
-    d.text(s, MARGIN, Inches(2.1), half, Inches(4.2), [
-        "Грейды хорошо отражают риск, но не исчерпывают его.",
-        "Незавершённые займы завышают оценку: нужен отбор созревших.",
-        "Новые данные дали больше, чем XGBoost, нейросеть и ансамбль.",
-        "Модель на данных заёмщика сильнее грейда LendingClub.",
-        "Parquet и типы данных позволяют работать с полным набором на обычном компьютере.",
-    ], size=18, tint="white")
-    x = MARGIN + half + Inches(0.4)
-    d.text(s, x, Inches(1.5), half, Inches(0.5), ["Ограничения"], size=22, tint="amber", bold=True)
-    d.text(s, x, Inches(2.1), half, Inches(4.2), [
-        "Тест содержит только займы на 36 месяцев.",
-        "Обучающие метки 2013–2014 гг. на начало 2015 г. ещё не были полностью известны.",
-        "Нет отклонённых заявок, reject inference не выполнялся.",
-        "Риск недооценивается и после калибровки: нужен регулярный пересчёт.",
-        "Поля кредитного отчёта есть только с августа 2012 г.",
-    ], size=18, tint="white")
-    d.text(s, MARGIN, Inches(6.45), Inches(11.2), Inches(0.5),
-           [f"{TEST_COUNT} тестов, покрытие {COVERAGE_PCT}%. Запуск без загрузки данных описан в README. При подготовке использован ИИ-ассистент "
-            "Claude Code, см. отчёт."], size=13, tint="mint")
+    # Выводы (шаблон: слайд 11)
+    title(s[10], "TextBox 8", "Выводы")
+    set_text(s[10], "TextBox 6", [f"Модель полезна: если одобрять 80% надёжных заявок, невозвратов "
+                                  f"{ru(approve_80, 0)}% вместо {ru(approve_all, 0)}%."], size=28)
+    set_text(s[10], "TextBox 7", ["Главное — честная проверка: только завершённые займы и данные на день заявки."],
+             size=28)
+    notes(s[10], """Итоги: большие данные можно обработать на обычном компьютере; незавершённые займы обманывают;
+              модель отделяет надёжных заёмщиков от рискованных; сложнее не значит лучше. Ограничения: проверка только
+              на займах на 3 года, нет отклонённых заявок. При работе использовался ИИ-ассистент Claude Code, это
+              указано в отчёте.""")
 
+    # Спасибо
+    set_text(s[12], "TextBox 20", ["Спасибо!"], size=None)
+    set_text(s[12], "TextBox 21", ["Готов ответить на вопросы"], size=24)
+    notes(s[12], "Спасибо за внимание. Готов ответить на вопросы.")
 
-def build() -> None:
-    prs = Presentation()
-    prs.slide_width, prs.slide_height = SLIDE_W, SLIDE_H
-    apply_theme(prs)
-    layouts = set_layout_placeholders(prs)
-    prs.core_properties.title = TITLE
+    reorder(prs, [0, 2, 1, 3, 4, 13, 14, 15, 5, 6, 7, 8, 9, 11, 16, 10, 12])  # дашборд — перед выводами
+    prs.core_properties.title = "Прогноз дефолта по займам LendingClub"
     prs.core_properties.author = AUTHOR
-    deck = Deck(prs, layouts, load())
-    for build_slide in (s01_title, s02_summary, s03_data, s04_volume, s05_sql, s06_eda, s07_censoring, s08_method,
-                        s09_models, s10_grade, s11_policy, s12_close):
-        build_slide(deck)
     prs.save(OUTPUT)
     print(f"Готово: {OUTPUT}")
+    return OUTPUT
 
 
 if __name__ == "__main__":
