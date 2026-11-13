@@ -225,8 +225,8 @@ def summary(rep: Report, r: Results) -> None:
           f"вероятности дефолта. Итоговая оценка выполнена на {thousands(r.metadata['test_rows'])} созревших займах "
           "2015 года, которые не участвовали ни в обучении, ни в подборе порога и калибровки.")
     rep.bullets([
-        f"По заранее заданному правилу выбран LightGBM: ROC-AUC {ru(r.m(GBM, 'roc_auc'))} и Gini "
-        f"{ru(r.m(GBM, 'gini'))} на тесте. На валидации он опережает логистическую регрессию на "
+        f"По заранее заданному правилу выбран LightGBM: ROC-AUC {ru(r.m(GBM, 'roc_auc'))} на тесте "
+        f"(Gini {ru(2 * r.m(GBM, 'roc_auc') - 1)}). На валидации он опережает логистическую регрессию на "
         f"{ru(r.m(GBM, 'valid_auc') - r.m(LR, 'valid_auc'))}, что больше заданного запаса {ru(0.005)}.",
         f"По мотивам открытых решений на Kaggle [9] добавлены XGBoost [10], нейросеть и их ансамбль с LightGBM. "
         f"Они подтвердили потолок качества на этих данных: XGBoost {ru(r.m(XGB, 'roc_auc'))}, нейросеть "
@@ -412,7 +412,7 @@ def methods_section(rep: Report, r: Results) -> None:
     rep.h2("4.4. Калибровка и порог")
     rep.p("Выходом модели является вероятность дефолта, поэтому важна её калибровка. Использована калибровка Платта [4]: "
           "логистическая регрессия на логите прогноза, обученная на 2014 годе. Преобразование монотонно и не меняет "
-          "порядок заёмщиков, поэтому ROC-AUC остаётся прежней. Качество оценивается по Brier и ECE [5]. Порог "
+          "порядок заёмщиков, поэтому ROC-AUC остаётся прежней. Качество калибровки оценивается по ECE [5]: среднему разрыву между прогнозом и фактом. Порог "
           "максимума F1 подбирается на тех же данных. Он нужен только для сравнения моделей, а реальная политика "
           "показана в таблице одобрения.")
     rep.h2("4.5. Правило выбора модели")
@@ -449,11 +449,11 @@ def results_section(rep: Report, r: Results) -> None:
     rep.h2("5.1. Сравнение моделей")
     selected = r.selection["selected"]
     order = list(r.metrics["model"])
-    rep.table(["Модель", "Valid AUC", "Test AUC", "Gini", "KS", "PR-AUC", "Brier", "ECE"],
-              [[MODEL_LABELS[m], ru(r.m(m, "valid_auc")), ru(r.m(m, "roc_auc")), ru(r.m(m, "gini")), ru(r.m(m, "ks")),
-                ru(r.m(m, "pr_auc")), ru(r.m(m, "brier"), 4), ru(r.m(m, "ece"), 4)] for m in order],
+    rep.table(["Модель", "Valid AUC", "Test AUC", "PR-AUC", "ECE"],
+              [[MODEL_LABELS[m], ru(r.m(m, "valid_auc")), ru(r.m(m, "roc_auc")),
+                ru(r.m(m, "pr_auc")), ru(r.m(m, "ece"), 4)] for m in order],
               "Качество вероятностей на тесте (созревшие займы 2015 г.), от порога не зависит. Выбранная модель выделена",
-              [4.8, 1.6, 1.5, 1.4, 1.4, 1.5, 1.5, 1.5], highlight=order.index(selected))
+              [6.8, 2.3, 2.3, 2.3, 2.3], highlight=order.index(selected))
     rep.table(["Модель", "Порог PD", "Accuracy", "Precision", "Recall", "F1"],
               [[MODEL_LABELS[m], ru(r.m(m, "threshold"), 2), ru(r.m(m, "accuracy")), ru(r.m(m, "precision")),
                 ru(r.m(m, "recall")), ru(r.m(m, "f1"))] for m in order],
@@ -626,8 +626,8 @@ def closing_sections(rep: Report, r: Results) -> None:
     ])
     rep.h1("8. Выводы")
     rep.bullets([
-        f"Построена модель PD на данных до выдачи: LightGBM с ROC-AUC {ru(r.m(GBM, 'roc_auc'))} и Gini "
-        f"{ru(r.m(GBM, 'gini'))} на созревших займах 2015 года. Это лучше базовых вариантов: Dummy и одного подгрейда "
+        f"Построена модель PD на данных до выдачи: LightGBM с ROC-AUC {ru(r.m(GBM, 'roc_auc'))} "
+        f"на созревших займах 2015 года. Это лучше базовых вариантов: Dummy и одного подгрейда "
         f"({ru(r.m(GRADE, 'roc_auc'))}).",
         "Грейды LendingClub хорошо отражают риск, и дефолтность монотонно растёт от A к G. Но грейд не исчерпывает риск: "
         "модель находит различия и внутри грейдов.",
