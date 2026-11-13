@@ -25,7 +25,7 @@ README_ROWS = {
 @pytest.mark.parametrize("label, model", README_ROWS.items())
 def test_readme_metrics_match_reports(label, model):
     row = next(line for line in README.splitlines() if label in line).replace("*", "")
-    for column, digits in (("valid_auc", 3), ("roc_auc", 3), ("gini", 3), ("ks", 3), ("pr_auc", 3), ("brier", 4)):
+    for column, digits in (("valid_auc", 3), ("roc_auc", 3), ("pr_auc", 3), ("ece", 4)):
         assert f"{METRICS.loc[model, column]:.{digits}f}" in row, f"{model}: {column}"
 
 
@@ -53,6 +53,24 @@ def test_notebook_is_executed_without_errors():
     for cell in code_cells:
         assert cell.execution_count is not None, cell.source[:60]
         assert all(output.output_type != "error" for output in cell.outputs), cell.source[:60]
+
+
+def test_every_notebook_cell_is_explained_in_the_guide():
+    """У каждой ячейки кода есть объяснение в пояснительной записке, у каждого графика — подпись."""
+    import nbformat
+
+    sys.path.insert(0, str(ROOT / "docs"))
+    from guide_text import CAPTIONS, EXPLAIN
+
+    notebook = nbformat.read(ROOT / "project_walkthrough.ipynb", as_version=4)
+    code_cells = [cell for cell in notebook.cells if cell.cell_type == "code"]
+    keys = [cell.metadata.get("guide") for cell in code_cells]
+    assert len(keys) == len(set(keys)), "ключи ячеек должны быть уникальны"
+    assert set(keys) <= set(EXPLAIN)
+    with_images = {cell.metadata["guide"] for cell in code_cells
+                   if any("image/png" in output.get("data", {}) for output in cell.outputs)}
+    assert len(with_images) >= 20
+    assert with_images <= set(CAPTIONS)
 
 
 def test_er_diagram_parser_reads_every_table():
