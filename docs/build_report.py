@@ -449,11 +449,26 @@ def results_section(rep: Report, r: Results) -> None:
     rep.h2("5.1. Сравнение моделей")
     selected = r.selection["selected"]
     order = list(r.metrics["model"])
-    rep.table(["Модель", "Valid AUC", "Test AUC", "Gini", "KS", "PR-AUC", "Brier", "ECE", "F1"],
+    rep.table(["Модель", "Valid AUC", "Test AUC", "Gini", "KS", "PR-AUC", "Brier", "ECE"],
               [[MODEL_LABELS[m], ru(r.m(m, "valid_auc")), ru(r.m(m, "roc_auc")), ru(r.m(m, "gini")), ru(r.m(m, "ks")),
-                ru(r.m(m, "pr_auc")), ru(r.m(m, "brier"), 4), ru(r.m(m, "ece"), 4), ru(r.m(m, "f1"))] for m in order],
-              "Качество на тесте: созревшие займы 2015 г. Выбранная модель выделена",
-              [4.6, 1.5, 1.4, 1.3, 1.3, 1.4, 1.4, 1.4, 1.2], highlight=order.index(selected))
+                ru(r.m(m, "pr_auc")), ru(r.m(m, "brier"), 4), ru(r.m(m, "ece"), 4)] for m in order],
+              "Качество вероятностей на тесте (созревшие займы 2015 г.), от порога не зависит. Выбранная модель выделена",
+              [4.8, 1.6, 1.5, 1.4, 1.4, 1.5, 1.5, 1.5], highlight=order.index(selected))
+    rep.table(["Модель", "Порог PD", "Accuracy", "Precision", "Recall", "F1"],
+              [[MODEL_LABELS[m], ru(r.m(m, "threshold"), 2), ru(r.m(m, "accuracy")), ru(r.m(m, "precision")),
+                ru(r.m(m, "recall")), ru(r.m(m, "f1"))] for m in order],
+              "Качество решений «одобрить / отказать» на тесте: заём с PD не ниже порога считается дефолтом. "
+              "Порог подобран по максимуму F1 на валидации 2014 г.",
+              [5.6, 2.0, 2.1, 2.1, 2.1, 2.1], highlight=order.index(selected))
+    all_repay = r.m(GBM, "accuracy_all_repay")
+    rep.p(f"Почему главная метрика ROC-AUC, а не accuracy. В тесте {ru(100 * all_repay, 1)}% займов погашены, поэтому "
+          f"константная модель «все вернут» получает accuracy {ru(all_repay)}, не найдя ни одного дефолта. LightGBM при "
+          f"пороге {ru(r.m(GBM, 'threshold'), 2)} находит {ru(100 * r.m(GBM, 'recall'), 0)}% дефолтов (recall), но его "
+          f"accuracy ниже: {ru(r.m(GBM, 'accuracy'))}, потому что часть надёжных заёмщиков попадает в отказ. Accuracy "
+          "наказывает модель за поиск дефолтов, и при другом пороге все четыре метрики меняются в разы. ROC-AUC "
+          "оценивает, насколько хорошо модель упорядочивает заёмщиков по риску, и от порога не зависит. Поэтому модели "
+          "сравниваются по ROC-AUC, а порог выбирается отдельно, под риск-аппетит кредитора (раздел 5.6).",
+          "Accuracy, precision и recall.")
     rep.table(["Модель", "Обучение, с", "Пик памяти, МБ", "Прогноз, мс на 1000", "Размер, МБ"],
               [[MODEL_LABELS[m], ru(r.m(m, "fit_seconds"), 1), ru(r.fit_mb(m), 0),
                 ru(r.m(m, "predict_ms_per_1000"), 1), ru(r.m(m, "model_mb"), 2)] for m in order],
