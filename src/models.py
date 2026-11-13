@@ -26,12 +26,10 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import (
     accuracy_score,
     average_precision_score,
-    brier_score_loss,
     f1_score,
     precision_score,
     recall_score,
     roc_auc_score,
-    roc_curve,
 )
 from sklearn.model_selection import GridSearchCV, TimeSeriesSplit
 from sklearn.neural_network import MLPClassifier
@@ -234,12 +232,6 @@ def apply_platt(p: np.ndarray, a: float, b: float) -> np.ndarray:
     return expit(a * logit(np.clip(p, 1e-6, 1 - 1e-6)) + b)
 
 
-def ks_stat(y: pd.Series, p: np.ndarray) -> float:
-    """Статистика Колмогорова–Смирнова: max(TPR - FPR) — стандартная метрика скоринга."""
-    fpr, tpr, _ = roc_curve(y, p)
-    return float(np.max(tpr - fpr))
-
-
 def best_f1_threshold(y: pd.Series, p: np.ndarray) -> float:
     """Порог вероятности от 0.05 до 0.60 с шагом 0.01, при котором F1 максимальна."""
     grid = np.linspace(0.05, 0.6, 56)
@@ -256,16 +248,19 @@ def expected_calibration_error(y: pd.Series, p: np.ndarray, bins: int = 10) -> f
 
 
 def evaluate(y: pd.Series, p: np.ndarray, threshold: float) -> dict:
-    """Все метрики качества одной модели на test.
+    """Метрики качества одной модели на test.
 
-    ROC-AUC, Gini, KS, PR-AUC, Brier и ECE оценивают сами вероятности и от порога не зависят.
-    Accuracy, precision, recall и F1 считаются после порога: заём с PD >= threshold считается дефолтом.
-    accuracy_all_repay — доля погашенных займов, то есть accuracy модели «все вернут» без единого найденного дефолта.
+    Без порога (оценивают сами вероятности):
+      roc_auc — насколько хорошо модель упорядочивает заёмщиков по риску; по ней выбирается модель;
+      pr_auc  — качество поиска редкого класса (дефолтов); у угадывания равна доле дефолтов;
+      ece     — можно ли верить самой цифре PD: средний разрыв между прогнозом и фактом.
+    С порогом (заём с PD >= threshold считается дефолтом, то есть получает отказ):
+      precision — доля настоящих дефолтов среди отказов; recall — доля пойманных дефолтов; f1 — их баланс;
+      accuracy  — доля верных решений; accuracy_all_repay — accuracy модели «все вернут» для сравнения.
     """
     pred = p >= threshold
-    auc = roc_auc_score(y, p)
-    return {"roc_auc": auc, "gini": 2 * auc - 1, "pr_auc": average_precision_score(y, p),
-            "ks": ks_stat(y, p), "brier": brier_score_loss(y, p), "ece": expected_calibration_error(y, p),
+    return {"roc_auc": roc_auc_score(y, p), "pr_auc": average_precision_score(y, p),
+            "ece": expected_calibration_error(y, p),
             "threshold": threshold, "accuracy": accuracy_score(y, pred),
             "accuracy_all_repay": float(1 - np.mean(y)), "precision": precision_score(y, pred, zero_division=0),
             "recall": recall_score(y, pred), "f1": f1_score(y, pred)}
@@ -305,7 +300,7 @@ def fit_one(spec: ModelSpec, best: dict, windows: dict) -> dict:
     # Она замеряется в отдельных процессах в src/benchmark.py (пункт меню 8).
     row = {"model": spec.name, "valid_auc": valid_auc, "probe_test_auc": probe_test_auc,
            **evaluate(y_test, p, threshold),
-           "brier_raw": brier_score_loss(y_test, p_raw), "ece_raw": expected_calibration_error(y_test, p_raw),
+           "ece_raw": expected_calibration_error(y_test, p_raw),
            "mean_pd": float(p.mean()), "actual_default_rate": float(y_test.mean()),
            "fit_seconds": fit_cost.seconds,
            "predict_ms_per_1000": 1e6 * predict_cost.seconds / len(test), "model_mb": path.stat().st_size / 2**20}
@@ -366,7 +361,7 @@ def train_and_compare(model_df: pd.DataFrame, best: dict) -> tuple:
         rows.append(res["row"])
         fitted[spec.name], preds[spec.name], preds_raw[spec.name] = res["model"], res["p"], res["p_raw"]
         registry[spec.name] = res["registry"]
-        print(f"  {spec.name:<36} ROC-AUC={res['row']['roc_auc']:.4f}  KS={res['row']['ks']:.3f}  "
+        print(f"  {spec.name:<36} ROC-AUC={res['row']['roc_auc']:.4f}  "
               f"fit={res['row']['fit_seconds']:.1f}c")
     metrics = pd.DataFrame(rows).round(4)
     metrics.to_csv(C.REPORTS / "model_metrics.csv", index=False)

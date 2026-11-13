@@ -94,7 +94,8 @@ def step_models() -> None:
     best = tune(fit[C.FEATURES], fit[C.TARGET].astype(int))
     save_json(best, C.REPORTS / "tuning.json")
     metrics, fitted, preds, preds_raw, test = train_and_compare(model_df, best)
-    print(metrics[["model", "valid_auc", "roc_auc", "gini", "ks", "pr_auc", "brier", "f1"]].to_string(index=False))
+    columns = ["model", "valid_auc", "roc_auc", "pr_auc", "ece", "precision", "recall", "f1"]
+    print(metrics[columns].to_string(index=False))
     result = run_explain(fitted, preds, preds_raw, test, metrics)
     print("\nОшибки по грейдам:\n", result["errors"].to_string(index=False))
     print("\nЧувствительность к цензурированию:\n", censoring_sensitivity(df, best).to_string(index=False))

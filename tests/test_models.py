@@ -18,7 +18,6 @@ from src.models import (
     evaluate,
     expected_calibration_error,
     fit_platt,
-    ks_stat,
     make_input_row,
     model_specs,
     predict_pd,
@@ -37,13 +36,6 @@ APPLICATION = {
 
 
 @pytest.mark.unit
-def test_ks_perfect_and_random():
-    y = np.array([0, 0, 1, 1])
-    assert ks_stat(y, np.array([0.1, 0.2, 0.8, 0.9])) == pytest.approx(1.0)
-    assert ks_stat(y, np.array([0.5, 0.5, 0.5, 0.5])) == pytest.approx(0.0)
-
-
-@pytest.mark.unit
 def test_threshold_metrics_by_hand():
     """4 займа, 2 дефолта. Порог 0.5: один дефолт пойман, один пропущен, одна ложная тревога."""
     y = pd.Series([1, 1, 0, 0])
@@ -53,6 +45,7 @@ def test_threshold_metrics_by_hand():
     assert m["precision"] == pytest.approx(0.5) and m["recall"] == pytest.approx(0.5)
     assert m["accuracy_all_repay"] == pytest.approx(0.5)
     assert m["roc_auc"] == pytest.approx(0.75)
+    assert set(m) >= {"pr_auc", "ece", "f1"} and not set(m) & {"gini", "ks", "brier"}
 
 
 @pytest.mark.unit
