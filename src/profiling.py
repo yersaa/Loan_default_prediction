@@ -14,6 +14,7 @@ import psutil
 
 @dataclass
 class Measurement:
+    """Результат замера: время выполнения, с, и прирост пиковой памяти процесса, МБ."""
     seconds: float = 0.0
     peak_mb: float = 0.0
 

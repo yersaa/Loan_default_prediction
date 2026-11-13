@@ -1,7 +1,10 @@
 """Единый стиль графиков: одна палитра, спокойная сетка, подписи чернилами, а не цветом серий."""
+import sys
+
 import matplotlib
 
-matplotlib.use("Agg")
+if "ipykernel" not in sys.modules:  # в консоли графики только сохраняются в файлы; в ноутбуке показываются на месте
+    matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 from src import config as C
