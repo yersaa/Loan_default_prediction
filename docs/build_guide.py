@@ -25,7 +25,7 @@ from docx.shared import Cm, Pt, RGBColor
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from build_report import Report, add_field, footer_page_numbers, rgb, set_font, setup_styles  # noqa: E402
 from guide_text import ARCHITECTURE, CAPTIONS, EXPLAIN, GLOSSARY, INTRO, OVERVIEW  # noqa: E402
-from results import AUTHOR, COURSE, GROUP  # noqa: E402
+from results import AUTHORS, COURSE, GROUP, placeholders_left  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 NOTEBOOK = ROOT / "project_walkthrough.ipynb"
@@ -261,7 +261,7 @@ def title(doc: Document) -> None:
         ("Прогноз дефолта по займам LendingClub", 22, True, 60),
         ("Пояснительная записка к ноутбуку project_walkthrough.ipynb", 14, False, 12),
         ("Подробное объяснение данных, кода, графиков и результатов", 12, False, 6),
-        (f"{AUTHOR}, {GROUP}", 12, False, 150),
+        (f"{AUTHORS}, {GROUP}", 12, False, 150),
     ]:
         para = doc.add_paragraph()
         para.alignment = WD_ALIGN_PARAGRAPH.CENTER
@@ -288,7 +288,8 @@ def build(with_defense: bool = False) -> Path:
     section.top_margin = section.bottom_margin = Cm(2)
     setup_styles(doc)
     doc.core_properties.title = "Пояснительная записка к ноутбуку"
-    doc.core_properties.author = AUTHOR
+    doc.core_properties.author = AUTHORS
+    placeholders_left()
     footer_page_numbers(doc)
     title(doc)
     head = doc.add_paragraph()

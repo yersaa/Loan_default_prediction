@@ -9,13 +9,51 @@ ROOT = Path(__file__).resolve().parent.parent
 REPORTS = ROOT / "reports"
 FIGURES = REPORTS / "figures"
 
-AUTHOR = "Kilybayev Yersaiyn"
 GROUP = "AAI-2602M"
 COURSE = "Programming for Data Analysis and Database"
 TITLE = "Прогноз дефолта по займам LendingClub"
 
+
+@dataclass(frozen=True)
+class Member:
+    """Участник команды: имя, короткая подпись для слайда и вклад подробно — для отчёта."""
+    name: str
+    role: str
+    work: str
+
+
+# Вклад каждого участника требуется указать в отчёте и в презентации (раздел «Требования к сдаче» задания).
+# Имена, отмеченные PLACEHOLDER, нужно заменить настоящими до сдачи: сборщики документов об этом напоминают.
+PLACEHOLDER = "Участник"
+TEAM = (
+    Member("Kilybayev Yersaiyn", "данные и база",
+           "загрузка CSV частями и Parquet, оптимизация типов, аудит качества, схема SQLite, ER-диаграмма, "
+           "SQL-запросы, бенчмарки памяти и скорости"),
+    Member("Участник 2", "анализ и интерфейс",
+           "разведочный анализ и графики, консольное меню main.py, дашборд Streamlit"),
+    Member("Участник 3", "модели и оценка",
+           "признаки и временное разбиение, обучение и сравнение моделей, калибровка и порог, интерпретация (SHAP), "
+           "анализ ошибок"),
+)
+TEAM_SHARED = "вместе: постановка задачи, выбор методики, ноутбук, отчёт и презентация"
+AUTHORS = ", ".join(m.name for m in TEAM)
+AI_STATEMENT = (
+    "При работе над проектом использовался ИИ-ассистент Claude Code (Anthropic). Команда выбрала тему и данные, "
+    "построила исходную версию конвейера (загрузка и очистка данных, база и SQL-запросы, разведочный анализ, первые "
+    "модели, дашборд) и принимала ключевые решения по методике. ИИ использовался для рецензирования кода и методики "
+    "(в том числе указал на смещение из-за незавершённых займов), рефакторинга, тестов, оформления ноутбука и "
+    "черновиков документации. Все результаты команда проверила и отвечает за содержание работы.")
+
+
+def placeholders_left() -> list:
+    """Участники, у которых ещё не вписано настоящее имя."""
+    names = [m.name for m in TEAM if m.name.startswith(PLACEHOLDER)]
+    if names:
+        print(f"ВНИМАНИЕ: в docs/results.py не заполнены имена участников: {names}")
+    return names
+
 # Единственные числа, которые вписываются вручную: обновите после `pytest --cov=src --cov=main --cov=app`
-TEST_COUNT, COVERAGE_PCT = 115, 94
+TEST_COUNT, COVERAGE_PCT = 117, 94
 
 BRAND = {"pine": "14342B", "green": "2E7D5B", "mint": "DCEAE3", "tint": "F1F6F3", "amber": "D9901A",
          "rust": "B9472E", "ink": "1C2421", "muted": "5B6B65", "line": "C9D6D0", "white": "FFFFFF"}
@@ -60,8 +98,14 @@ class Results:
     income: pd.DataFrame
     loss: pd.DataFrame
     state: pd.DataFrame
+    risk_groups: pd.DataFrame
     metadata: dict
     feature_count: int
+
+    @property
+    def selected(self) -> str:
+        """Модель, выбранная правилом на валидации 2014 года."""
+        return self.selection["selected"]
 
     def m(self, model: str, column: str) -> float:
         return float(self.metrics.set_index("model").loc[model, column])
@@ -90,7 +134,7 @@ def load() -> Results:
         vintage=_csv("sql/vintage_by_year_term.csv"), purpose=_csv("sql/purpose_having.csv"),
         dti=_csv("sql/dti_deciles.csv"), fico_home=_csv("sql/fico_home_matrix.csv"),
         income=_csv("sql/income_vs_grade_avg.csv"), loss=_csv("sql/loss_by_grade.csv"),
-        state=_csv("sql/state_rank.csv"),
+        state=_csv("sql/state_rank.csv"), risk_groups=_csv("risk_groups.csv"),
         metadata=json.loads((ROOT / "models" / "metadata.json").read_text(encoding="utf-8")),
         feature_count=len(json.loads((ROOT / "models" / "feature_defaults.json").read_text(encoding="utf-8"))),
     )

@@ -16,6 +16,9 @@ from nbformat.v4 import new_code_cell, new_markdown_cell, new_notebook
 
 ROOT = Path(__file__).resolve().parent.parent
 OUTPUT = ROOT / "project_walkthrough.ipynb"
+sys.path.insert(0, str(ROOT / "docs"))
+from results import AUTHORS, GROUP  # noqa: E402
+
 cells: list = []
 
 
@@ -30,11 +33,11 @@ def code(key: str, text: str) -> None:
 
 
 # --------------------------------------------------------------------------------------------- введение
-md("""
+md(f"""
 # LendingClub: кто не вернёт кредит?
 
 **Итоговый проект** по дисциплине *Programming for Data Analysis and Database*, тема №33 «Loan Default Prediction».
-Автор: Kilybayev Yersaiyn, AAI-2602M.
+Команда: {AUTHORS}, {GROUP}.
 
 ### О чём этот проект
 

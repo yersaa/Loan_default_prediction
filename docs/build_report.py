@@ -15,17 +15,21 @@ from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from docx.shared import Cm, Pt, RGBColor
 from results import (
-    AUTHOR,
+    AI_STATEMENT,
+    AUTHORS,
     BRAND,
     COURSE,
     COVERAGE_PCT,
     FIGURES,
     GROUP,
     ROOT,
+    TEAM,
+    TEAM_SHARED,
     TEST_COUNT,
     TITLE,
     Results,
     load,
+    placeholders_left,
     ru,
     thousands,
 )
@@ -192,8 +196,9 @@ def title_page(doc: Document) -> None:
         ("ИТОГОВЫЙ ПРОЕКТ", 13, True, 110),
         (TITLE, 22, True, 10),
         ("Тема №33: Loan Default Prediction (LendingClub)", 12, False, 6),
-        (f"Автор: {AUTHOR}, группа {GROUP}", 12, False, 150),
-        ("Проект выполнен индивидуально", 12, False, 4),
+        ("Выполнили:", 12, False, 120),
+        *((member.name, 12, False, 2) for member in TEAM),
+        (f"группа {GROUP}", 12, False, 6),
         ("2026", 12, False, 70),
     ):
         para = doc.add_paragraph()
@@ -664,15 +669,13 @@ def closing_sections(rep: Report, r: Results) -> None:
           "и проверяют отсутствие утечки, границы созревания, запросы SQL относительно Pandas, совпадение признаков при "
           "обучении и скоринге и работу демо-пайплайна. Код проверяется линтером ruff. Все числа этого отчёта читаются "
           "из файлов reports/ при сборке документа.")
+    rep.h2("Вклад участников")
+    rep.table(["Участник", "Что сделал"], [[m.name, m.work] for m in TEAM], "Распределение работы в команде",
+              [4.5, 11.5])
+    rep.p(f"Общая работа — {TEAM_SHARED.removeprefix('вместе: ')}. Каждый участник разобрал весь код и может "
+          "объяснить любую его часть.")
     rep.h2("Использованные инструменты")
-    rep.p(
-          "При работе над проектом использовался ИИ-ассистент Claude Code (Anthropic). Автор выбрал тему и данн"
-          "ые, построил исходную версию конвейера (загрузка и очистка данных, база и SQL-запросы, разведочный а"
-          "нализ, первые модели, дашборд) и принимал ключевые решения по методике. ИИ использовался для рецензи"
-          "рования кода и методики (в том числе указал на смещение из-за незавершённых займов), рефакторинга, т"
-          "естов, оформления ноутбука и черновиков документации. Все результаты автор проверил и отвечает за со"
-          "держание работы."
-          " Рекомендации по стилю кода и тестов взяты из открытого набора ECC [8].")
+    rep.p(AI_STATEMENT + " Рекомендации по стилю кода и тестов взяты из открытого набора ECC [8].")
     rep.h1("Литература")
     for i, ref in enumerate([
         "wordsforthewise. All Lending Club loan data. Kaggle. https://www.kaggle.com/datasets/wordsforthewise/lending-club",
@@ -701,6 +704,9 @@ def footer_page_numbers(doc: Document) -> None:
 
 def build() -> Path:
     r = load()
+    if r.selected != GBM:  # текст отчёта рассказывает о LightGBM как о выбранной модели
+        raise ValueError(f"Правило выбрало {r.selected}: обновите формулировки отчёта перед сборкой.")
+    placeholders_left()
     doc = Document()
     section = doc.sections[0]
     section.orientation = WD_ORIENT.PORTRAIT
@@ -709,7 +715,7 @@ def build() -> Path:
     section.top_margin, section.bottom_margin = Cm(2), Cm(2)
     setup_styles(doc)
     doc.core_properties.title = TITLE
-    doc.core_properties.author = AUTHOR
+    doc.core_properties.author = AUTHORS
     footer_page_numbers(doc)
     title_page(doc)
     rep = Report(doc)
