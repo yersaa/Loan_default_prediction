@@ -15,6 +15,7 @@ import pandas as pd
 from src import config as C
 from src.data_io import load_dataset, load_json, mb, memory_report, save_json
 from src.database import connect, require_database
+from src.features import add_target
 from src.profiling import measure
 
 CSV_COLS = ["issue_d", "grade", "loan_amnt", "int_rate", "annual_inc", "loan_status"]
@@ -45,10 +46,9 @@ def read_parquet() -> pd.DataFrame:
 
 def pandas_aggregate() -> pd.DataFrame:
     """Задача для замера: дефолтность по году и грейду средствами Pandas (данные из Parquet)."""
-    df = load_dataset(["issue_d", "grade", "loan_status"])
-    df["is_default"] = df["loan_status"].astype("object").map(C.STATUS_TO_TARGET)
-    df = df[df["is_default"].notna()]
-    grouped = df.groupby([df["issue_d"].dt.year.rename("issue_year"), "grade"], observed=True)["is_default"]
+    df = add_target(load_dataset(["issue_d", "grade", "loan_status"]))  # то же определение дефолта, что в модели
+    df = df[df[C.TARGET].notna()]
+    grouped = df.groupby([df["issue_d"].dt.year.rename("issue_year"), "grade"], observed=True)[C.TARGET]
     return grouped.agg(loans="size", default_rate="mean").reset_index().astype({"grade": str})
 
 

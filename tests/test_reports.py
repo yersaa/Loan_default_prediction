@@ -17,7 +17,14 @@ from src.benchmark import (
 )
 from src.database import build_database, run_all_queries
 from src.eda import run_eda
-from src.explain import approval_table, error_analysis, grade_recovery, missed_defaults_profile, run_explain
+from src.explain import (
+    approval_table,
+    error_analysis,
+    grade_recovery,
+    missed_defaults_profile,
+    risk_groups,
+    run_explain,
+)
 from src.features import modeling_frame
 from src.models import model_specs, train_and_compare
 
@@ -54,6 +61,17 @@ def test_approval_table_by_hand():
     everything = table[table["approval_rate"] == 1.0].iloc[0]
     assert everything["default_rate_pct"] == pytest.approx(75.0)
     assert everything["net_return_pct"] == pytest.approx(-42.5)
+
+
+@pytest.mark.unit
+def test_risk_groups_split_by_prediction():
+    """Десять займов на пять групп: в группе 1 — два займа с наименьшей PD."""
+    y = pd.Series([0, 0, 0, 1, 0, 1, 1, 0, 1, 1])
+    p = np.linspace(0.05, 0.5, 10)
+    table = risk_groups(y, p, groups=5)
+    assert table["loans"].tolist() == [2] * 5
+    assert table["default_rate_pct"].tolist() == [0.0, 50.0, 50.0, 50.0, 100.0]
+    assert table["mean_pd_pct"].iloc[0] == pytest.approx(7.5)
 
 
 @pytest.mark.unit
@@ -116,6 +134,7 @@ def test_eda_and_explain_create_all_artifacts(tmp_project, loans, fast_best):
     gbm = approval[approval["model"] == "LightGBM"].sort_values("approval_rate")
     assert gbm["default_rate_pct"].iloc[0] <= gbm["default_rate_pct"].iloc[-1]
     assert not grade_recovery(test, preds).empty
+    assert len(pd.read_csv(C.REPORTS / "risk_groups.csv")) == 10
 
 
 @pytest.mark.integration

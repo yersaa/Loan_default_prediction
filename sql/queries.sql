@@ -164,6 +164,8 @@ FROM loans l
 JOIN borrowers b ON b.loan_id = l.loan_id
 JOIN dim_home h  ON h.home_id = b.home_id
 JOIN outcomes o  ON o.loan_id = l.loan_id
-WHERE o.is_default IS NOT NULL AND o.is_matured = 1 AND h.home_ownership IN ('MORTGAGE', 'OWN', 'RENT')
+WHERE o.is_default IS NOT NULL AND o.is_matured = 1
+  AND b.fico IS NOT NULL  -- без FICO займ попал бы в ветку ELSE, то есть в '750+'
+  AND h.home_ownership IN ('MORTGAGE', 'OWN', 'RENT')
 GROUP BY fico_band, h.home_ownership
 ORDER BY fico_band, h.home_ownership;

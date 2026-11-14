@@ -168,11 +168,12 @@ STEPS = {"1": step_prepare, "2": step_audit, "3": step_database, "4": step_queri
 def run_step(key: str) -> bool:
     """Выполняет шаг меню, не давая ожидаемым ошибкам завершить программу. True — шаг выполнен.
 
+    OSError — это и отсутствующий файл, и файл, занятый другой программой (например, база открыта в DB Browser).
     KeyboardInterrupt здесь не перехватывается: Ctrl+C должен остановить и весь пайплайн.
     """
     try:
         STEPS[key]()
-    except (FileNotFoundError, ValueError, sqlite3.Error, pd.errors.DatabaseError) as e:
+    except (OSError, ValueError, sqlite3.Error, pd.errors.DatabaseError) as e:
         print(f"Ошибка: {e}")
         return False
     mark_done(MENU[key])

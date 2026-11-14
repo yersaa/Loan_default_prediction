@@ -9,14 +9,16 @@ from sklearn.calibration import calibration_curve
 from sklearn.metrics import ConfusionMatrixDisplay, precision_recall_curve, roc_auc_score, roc_curve
 
 from src import config as C
+from src.data_io import load_json
 from src.style import AQUA, AXIS, BLUE, MAGENTA, MUTED, ORANGE, YELLOW, save
 
-PRIMARY = "LightGBM"
+PRIMARY = "LightGBM"  # SHAP и восстановление грейда считаются для LightGBM: TreeExplainer работает с деревьями
 BORROWER = "LightGBM (borrower only)"
 MODEL_COLORS = {"Grade only (LogReg)": BLUE, "Logistic Regression": ORANGE, PRIMARY: AQUA, BORROWER: YELLOW,
                 "Logistic Regression (borrower only)": MAGENTA}
 APPROVAL_MODELS = ["Grade only (LogReg)", "Logistic Regression", PRIMARY, BORROWER]
 PR_MIN_RECALL = 0.01
+RISK_GROUPS = 10
 
 
 def plot_curves(y: pd.Series, preds: dict) -> None:
@@ -51,13 +53,15 @@ def plot_confusion(y: pd.Series, p: np.ndarray, threshold: float, name: str = PR
 def plot_calibration(y: pd.Series, preds: dict, preds_raw: dict) -> None:
     """Сплошная линия — после калибровки на 2014 годе, пунктир — исходный прогноз."""
     fig, ax = plt.subplots(figsize=(6.5, 5))
+    top = 0.0
     for name in ["Logistic Regression", PRIMARY]:
         color = MODEL_COLORS[name]
         frac, mean_p = calibration_curve(y, preds[name], n_bins=10, strategy="quantile")
         frac_raw, mean_raw = calibration_curve(y, preds_raw[name], n_bins=10, strategy="quantile")
         ax.plot(mean_p, frac, "o-", color=color, label=f"{name}, калибр.")
         ax.plot(mean_raw, frac_raw, "o--", color=color, alpha=0.45, lw=1.2, ms=4, label=f"{name}, исходный")
-    top = float(max(np.max(mean_p), np.max(frac))) * 1.05
+        top = max(top, *(float(np.max(v)) for v in (mean_p, frac, mean_raw, frac_raw)))
+    top *= 1.05  # диагональ «прогноз = факт» проходит через все четыре кривые
     ax.plot([0, top], [0, top], color=AXIS, ls="--", lw=1)
     ax.set(title="Калибровка: прогноз PD и факт (test)", xlabel="Средняя предсказанная PD",
            ylabel="Фактическая доля дефолтов")
@@ -128,7 +132,7 @@ def plot_approval(table: pd.DataFrame) -> None:
     """Два графика по таблице одобрения: дефолтность и доходность портфеля при разной доле одобрения."""
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(11, 4.4))
     for name, part in table.groupby("model", sort=False):
-        color = MODEL_COLORS[name]
+        color = MODEL_COLORS.get(name, MUTED)
         rate = part["approval_rate"] * 100
         ax1.plot(rate, part["default_rate_pct"], "o-", color=color, label=name)
         ax2.plot(rate, part["net_return_pct"], "o-", color=color, label=name)
@@ -138,6 +142,16 @@ def plot_approval(table: pd.DataFrame) -> None:
     ax1.legend(fontsize=8)
     ax2.legend(fontsize=8)
     save(fig, "13_approval.png")
+
+
+def risk_groups(y: pd.Series, p: np.ndarray, groups: int = RISK_GROUPS) -> pd.DataFrame:
+    """Делит заёмщиков на равные группы по прогнозу (1 — самые надёжные) и считает фактическую дефолтность."""
+    group = pd.qcut(pd.Series(p).rank(method="first"), groups, labels=range(1, groups + 1)).to_numpy()
+    frame = pd.DataFrame({"risk_group": group, "y": np.asarray(y, dtype=float), "p": p})
+    table = frame.groupby("risk_group", observed=True).agg(loans=("y", "size"), default_rate_pct=("y", "mean"),
+                                                            mean_pd_pct=("p", "mean")).reset_index()
+    table[["default_rate_pct", "mean_pd_pct"]] *= 100
+    return table.round(2)
 
 
 def grade_recovery(test: pd.DataFrame, preds: dict) -> pd.DataFrame:
@@ -154,21 +168,26 @@ def grade_recovery(test: pd.DataFrame, preds: dict) -> pd.DataFrame:
 
 
 def run_explain(fitted: dict, preds: dict, preds_raw: dict, test: pd.DataFrame, metrics: pd.DataFrame) -> dict:
-    """Строит все графики и таблицы интерпретации по результатам обучения и сохраняет их в reports/."""
+    """Строит все графики и таблицы интерпретации по результатам обучения и сохраняет их в reports/.
+
+    Порог, матрица ошибок, анализ ошибок и группы риска — для модели, выбранной правилом (model_selection.json).
+    """
+    selected = load_json(C.REPORTS / "model_selection.json", default={}).get("selected", PRIMARY)
     y = test[C.TARGET].astype(int)
-    thr = float(metrics.set_index("model").loc[PRIMARY, "threshold"])
+    thr = float(metrics.set_index("model").loc[selected, "threshold"])
     plot_curves(y, preds)
-    plot_confusion(y, preds[PRIMARY], thr)
+    plot_confusion(y, preds[selected], thr, name=selected)
     plot_calibration(y, preds, preds_raw)
     shap_full = plot_shap(fitted[PRIMARY], test[C.FEATURES], "12_shap_summary.png",
                           "SHAP: влияние признаков на PD (LightGBM, все поля)")
     shap_borrower = plot_shap(fitted[BORROWER], test[C.FEATURES], "12b_shap_borrower.png",
                               "SHAP: влияние признаков на PD (LightGBM, поля заёмщика)")
-    errors = error_analysis(test, preds[PRIMARY], thr)
-    profile = missed_defaults_profile(test, preds[PRIMARY], thr)
-    approval = approval_table(test, {m: preds[m] for m in APPROVAL_MODELS})
+    errors = error_analysis(test, preds[selected], thr)
+    profile = missed_defaults_profile(test, preds[selected], thr)
+    approval = approval_table(test, {m: preds[m] for m in dict.fromkeys(APPROVAL_MODELS + [selected])})
     plot_approval(approval)
     recovery = grade_recovery(test, preds)
+    risk_groups(y, preds[selected]).to_csv(C.REPORTS / "risk_groups.csv", index=False)
     shap_full.to_csv(C.REPORTS / "shap_importance.csv", index=False)
     shap_borrower.to_csv(C.REPORTS / "shap_importance_borrower.csv", index=False)
     errors.to_csv(C.REPORTS / "error_by_grade.csv", index=False)

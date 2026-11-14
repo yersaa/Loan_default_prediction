@@ -8,6 +8,7 @@ import platform
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
+from functools import lru_cache
 from pathlib import Path
 
 import joblib
@@ -384,14 +385,24 @@ def models_dir() -> Path:
     return C.MODELS if (C.MODELS / "registry.json").exists() else C.SHIPPED_MODELS
 
 
+@lru_cache(maxsize=16)
+def _read_model(path: str, modified: float) -> BaseEstimator:
+    """Читает модель с диска. Время изменения файла входит в ключ кэша: переобученная модель прочитается заново."""
+    return joblib.load(path)
+
+
 def load_model(name: str = "LightGBM") -> tuple:
-    """Загружает модель по названию и её запись из реестра: порог и коэффициенты калибровки."""
+    """Загружает модель по названию и её запись из реестра: порог и коэффициенты калибровки.
+
+    Повторные вызовы (каждая оценка заявки в дашборде) берут модель из кэша, а не с диска.
+    """
     folder = models_dir()
     registry = load_json(folder / "registry.json")
     if not registry:
         raise FileNotFoundError("Модели не обучены. Сначала выполните пункт меню 6.")
     info = registry[name]
-    return joblib.load(folder / info["file"]), info
+    path = folder / info["file"]
+    return _read_model(str(path), path.stat().st_mtime), info
 
 
 APPLICATION_LIMITS = {

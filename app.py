@@ -73,15 +73,20 @@ def about_tab() -> None:
     metrics = pd.read_csv(metrics_path).set_index("model")
     chosen = selection["selected"]
     row = metrics.loc[chosen]
-    approval = pd.read_csv(C.ROOT / "reports" / "approval_table.csv")
+    approval_path = C.ROOT / "reports" / "approval_table.csv"
+    approval = pd.read_csv(approval_path) if approval_path.exists() else pd.DataFrame(columns=["model"])
     approve = approval[approval["model"] == chosen].set_index("approval_rate")["default_rate_pct"]
     k1, k2, k3, k4 = st.columns(4)
-    k1.metric("Займов в данных", "2,26 млн")
+    rows = load_json(C.ROOT / "reports" / "ingest.json", default={}).get("rows")
+    k1.metric("Займов в данных", f"{rows / 1e6:.2f} млн".replace(".", ",") if rows else "—")
     k2.metric(f"ROC-AUC ({MODEL_NAMES[chosen]})", f"{row['roc_auc']:.3f}",
               f"{row['roc_auc'] - metrics.loc['Grade only (LogReg)', 'roc_auc']:+.3f} к грейду LendingClub")
     k3.metric("Ловит дефолтов", f"{row['recall']:.0%}", f"при пороге PD {row['threshold']:.2f}", delta_color="off")
-    k4.metric("Дефолт при одобрении 80%", f"{approve[0.8]:.1f}%", f"{approve[0.8] - approve[1.0]:+.1f} п. п.",
-              delta_color="inverse")
+    if {0.8, 1.0} <= set(approve.index):
+        k4.metric("Дефолт при одобрении 80%", f"{approve[0.8]:.1f}%", f"{approve[0.8] - approve[1.0]:+.1f} п. п.",
+                  delta_color="inverse")
+    else:
+        k4.metric("Дефолт при одобрении 80%", "—", "нет таблицы одобрения (пункт меню 6)", delta_color="off")
     st.markdown(
         "- **Вкладка «Аналитика»** — дефолтность по грейдам, годам и штатам с фильтрами.\n"
         "- **Вкладка «Скоринг заявки»** — введите анкету и получите PD и решение.\n"

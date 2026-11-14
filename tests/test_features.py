@@ -11,6 +11,7 @@ from src.features import (
     emp_to_years,
     is_matured,
     modeling_frame,
+    months_between,
     temporal_split,
     term_to_months,
 )
@@ -41,6 +42,14 @@ def test_term_to_months():
 def test_is_matured_boundaries(issue, term, expected):
     result = is_matured(pd.Series([pd.Timestamp(issue)]), pd.Series([term]))
     assert bool(result.iloc[0]) is expected
+
+
+def test_months_between_counts_calendar_months():
+    """Дни не учитываются; конец задаётся колонкой дат или одной датой."""
+    start = pd.Series(pd.to_datetime(["2010-01-31", "2014-11-01"]))
+    end = pd.Series(pd.to_datetime(["2010-02-01", "2015-01-15"]))
+    assert months_between(start, end).tolist() == [1, 2]
+    assert months_between(start, pd.Timestamp(2018, 12, 1)).tolist() == [107, 49]
 
 
 def test_add_target_maps_statuses():

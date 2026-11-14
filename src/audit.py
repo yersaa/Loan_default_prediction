@@ -5,6 +5,7 @@ import pandas as pd
 
 from src import config as C
 from src.data_io import load_json, save_json
+from src.features import months_between
 from src.style import BLUE, save
 
 HIGH_MISSING_PCT = 50
@@ -41,8 +42,7 @@ def bureau_timing(df: pd.DataFrame) -> dict:
     заметно превышать длину кредитной истории (issue_d - earliest_cr_line). Если бы LendingClub обновлял поле
     к дате выгрузки (2018 г.), у старых займов превышение составляло бы годы.
     """
-    issued, first_credit = df["issue_d"].dt, df["earliest_cr_line"].dt
-    history = (issued.year - first_credit.year) * 12 + (issued.month - first_credit.month)
+    history = months_between(df["earliest_cr_line"], df["issue_d"])  # та же формула, что у признака модели
     excess = (df["mo_sin_old_rev_tl_op"] - history).dropna()
     return {"rows_checked": len(excess),
             "max_excess_months": float(excess.max()) if len(excess) else None,

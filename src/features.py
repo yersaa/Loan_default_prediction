@@ -25,14 +25,20 @@ def term_to_months(term: pd.Series) -> pd.Series:
     return term.astype("object").str.extract(r"(\d+)")[0].astype("float32")
 
 
+def months_between(start: pd.Series, end: pd.Series | pd.Timestamp) -> pd.Series:
+    """Сколько месяцев прошло от start до end: считаются только год и месяц, дни не важны."""
+    end_year, end_month = (end.dt.year, end.dt.month) if isinstance(end, pd.Series) else (end.year, end.month)
+    return (end_year - start.dt.year) * 12 + (end_month - start.dt.month)
+
+
 def is_matured(issue_d: pd.Series, term_months: pd.Series) -> pd.Series:
     """Срок займа истёк к дате выгрузки.
 
     Незрелые займы отбрасывать только по статусу нельзя: среди ещё не истёкших завершены
     либо досрочно погашенные, либо уже списанные, поэтому дефолтность по ним смещена.
     """
-    months_elapsed = (C.SNAPSHOT_YEAR - issue_d.dt.year) * 12 + (C.SNAPSHOT_MONTH - issue_d.dt.month)
-    return months_elapsed >= term_months
+    snapshot = pd.Timestamp(C.SNAPSHOT_YEAR, C.SNAPSHOT_MONTH, 1)
+    return months_between(issue_d, snapshot) >= term_months
 
 
 def clean_values(df: pd.DataFrame) -> pd.DataFrame:
@@ -54,9 +60,7 @@ def build_features(df: pd.DataFrame) -> pd.DataFrame:
     """Признаки, которые известны до выдачи займа."""
     df = clean_values(df)
     df["fico"] = ((df["fico_range_low"] + df["fico_range_high"]) / 2).astype("float32")
-    months = (df["issue_d"].dt.year - df["earliest_cr_line"].dt.year) * 12 \
-        + (df["issue_d"].dt.month - df["earliest_cr_line"].dt.month)
-    df["credit_hist_months"] = months.astype("float32")
+    df["credit_hist_months"] = months_between(df["earliest_cr_line"], df["issue_d"]).astype("float32")
     df["term_months"] = term_to_months(df["term"])
     df["emp_years"] = df["emp_length"].astype("object").map(emp_to_years).astype("float32")
     return add_income_ratios(df)

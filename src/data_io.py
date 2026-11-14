@@ -11,7 +11,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 from src import config as C
-from src.features import is_matured
+from src.features import is_matured, term_to_months
 
 
 def mb(df: pd.DataFrame) -> float:
@@ -116,8 +116,7 @@ def make_sample(src: Path | None = None, dst: Path | None = None) -> dict:
     df = load_dataset(path=src or C.PARQUET)
     resolved = df["loan_status"].astype("object").isin(C.STATUS_TO_TARGET)
     in_window = df["issue_d"].dt.year.between(*C.MODEL_YEARS)
-    term = df["term"].astype("object").str.extract(r"(\d+)")[0].astype("float32")
-    mask = resolved & in_window & is_matured(df["issue_d"], term)
+    mask = resolved & in_window & is_matured(df["issue_d"], term_to_months(df["term"]))
     n_matured = min(C.SAMPLE_MATURED_ROWS, int(mask.sum()))
     n_other = min(C.SAMPLE_OTHER_ROWS, int((~mask).sum()))
     sample = pd.concat([df[mask].sample(n_matured, random_state=C.RANDOM_STATE),
