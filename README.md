@@ -1,7 +1,6 @@
 # LendingClub: анализ кредитного риска и прогноз дефолта
 
-Итоговый проект по дисциплине **Programming for Data Analysis and Database** (Applied AI, магистратура).
-Тема №33: *Loan Default Prediction (LendingClub)*. Команда: Kilybayev Yersaiyn, Menis Miras, Bekturganov Baknur (AAI-2602M).
+ *Loan Default Prediction (LendingClub)*.
 
 **Задача:** по данным, известным до выдачи займа, предсказать вероятность дефолта (PD)
 и проверить, насколько грейды LendingClub отражают реальный риск.
